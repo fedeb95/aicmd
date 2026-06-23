@@ -1,0 +1,30 @@
+1. Introduction
+The philosophy of mathematics plays an important role in analytic philosophy, both as a
+subject of inquiry in its own right, and as an important landmark in the broader
+philosophical landscape. Mathematical knowledge has long been regarded as a paradigm
+of human knowledge with truths that are both necessary and certain, so giving an account
+of mathematical knowledge is an important part of epistemology. Mathematical objects
+like numbers and sets are archetypical examples of abstracta, since we treat such objects
+in our discourse as though they are independent of time and space; finding a place for
+such objects in a broader framework of thought is a central task of ontology, or
+metaphysics. The rigor and precision of mathematical language depends on the fact that
+it is based on a limited vocabulary and very structured grammar, and semantic accounts
+of mathematical discourse often serve as a starting point for the philosophy of language.
+Although mathematical thought has exhibited a strong degree of stability through history,
+the practice has also evolved over time, and some developments have evoked
+controversy and debate; clarifying the basic goals of the practice and the methods that are
+appropriate to it is therefore an important foundational and methodological task, locating
+the philosophy of mathematics within the broader philosophy of science.
+In this chapter, I will try to convey a modern philosophical understanding of the subject
+as it practiced today. Our contemporary understanding has been shaped by traditional
+questions and concerns about the nature of mathematics, and Section 2 provides a broad
+overview of the general array of philosophical positions in place by the turn of the
+twentieth century. On the other hand, the nineteenth century is generally taken to
+represent the birth of ‘modern’ mathematical thought, and many new issues arose with
+the dramatic conceptual shifts that took place. Sections 3 and 4 summarize some of these
+developments. Our contemporary philosophical understanding has also been informed by
+nineteenth and twentieth century developments in mathematical logic, which can be
+viewed as a reflective, mathematical study of the methods of mathematical reasoning
+itself. Section 5 tries to explain what we have learned from such a study, in philosophical
+terms. Finally, Sections 6 and 7 try to convey, in broad strokes, some of the central lines
+of thought in the philosophy of mathematics today.
