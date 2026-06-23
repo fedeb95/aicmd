@@ -12,7 +12,7 @@ def summarize(
     provider: str = typer.Option("", help="ollama|openrouter; auto‑detect if omitted"),
     model: str = typer.Option("", help="Model name; provider default if omitted"),
     max_tokens: int = typer.Option(256, help="Maximum tokens for the summary"),
-    timeout: int = typer.Option(60, help="Request timeout in seconds (default 60)"),
+    timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)")
 ):
     """Summarize input text using the selected LLM backend."""
     cfg = config.load()
@@ -27,11 +27,12 @@ def summarize(
     else:
         text = file.read_text()
 
+    effective_timeout = timeout if timeout is not None else cfg.get("timeout", 300)
     summary = prov.summarize(
         text,
         model=model or cfg.get("model"),
         max_tokens=max_tokens,
-        timeout=timeout,
+        timeout=effective_timeout,
     )
     typer.echo(summary)
 
