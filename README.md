@@ -14,7 +14,7 @@ pip install .   # from the repository root
 
 aicmd configure set \
     --provider ollama \
-    --model llama3:8b \
+    --model qwen2.5:0.5b \
     --ollama-url http://localhost:11434 \
     --timeout 300
 
