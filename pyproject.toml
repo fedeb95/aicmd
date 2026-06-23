@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["aicmd"]
+packages = ["aicmd", "aicmd.providers"]
 
 [project.scripts]
 aicmd = "aicmd.__main__:app"
