@@ -1,0 +1,20 @@
+[project]
+name = "aicmd"
+version = "0.1.0"
+description = "AI‑powered Unix‑style commands (Python implementation)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+
+# PEP 621 dependencies array
+dependencies = [
+    "typer[all]",
+    "httpx",
+    "pyyaml",
+]
+
+[tool.setuptools]
+packages = ["aicmd"]
+
+[project.scripts]
+aicmd = "aicmd.__main__:app"
