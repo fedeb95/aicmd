@@ -14,19 +14,29 @@ class OllamaProvider(Provider):
         self.default_model = cfg.get("model", "qwen2.5:0.5b")
         self.client = httpx.Client()
 
-    def summarize(self, text: str, *, model: str | None = None, max_tokens: int = 256, timeout: int = 60) -> str:
+    def summarize(self, text: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60) -> str:
         """Generate a summary using Ollama with streaming output.
 
         If the specified model is not available, attempt to pull it and retry.
         Logging related to model pulling is written to ``stderr``.
         The generated text is streamed to standard output as it arrives.
         """
+        # Load an optional prompt template from configuration; fall back to default if not set
+        cfg = cfg_mod.load()
+        prompt_template = cfg.get("ollama_prompt_template",
+            "Summarize the following text in ONE concise sentence, preserving key facts and proper nouns. Do not add explanations or extra information.\n\n{{text}}")
+        # Render the template (simple replacement)
+        prompt = prompt_template.replace("{{text}}", text)
+        # Determine max_tokens: use argument, else configurable default, else a safe small limit
+        cfg_local = cfg_mod.load()
+        default_max = cfg_local.get("ollama_max_tokens", 80)
+        effective_max = max_tokens if max_tokens is not None else default_max
         payload = {
             "model": model or self.default_model,
-            "prompt": f"Summarize the following text:\n\n{text}\n\nSummary:",
+            "prompt": prompt,
             "stream": True,
-            "temperature": 0.2,
-            "max_tokens": max_tokens,
+            "temperature": 0.1,
+            "max_tokens": effective_max,
         }
         try:
             with self.client.stream("POST", f"{self.base_url}/api/generate", json=payload, timeout=timeout) as resp:
@@ -42,7 +52,8 @@ class OllamaProvider(Provider):
                             prev_response += obj["response"]
                     except json.JSONDecodeError:
                         print(line, end="", flush=True)
-                data = {"response": prev_response}
+                # The streamed output has been printed; return empty string
+                return ""
         except httpx.HTTPError as e:
             # If the model is not found (typically a 404), attempt to pull it
             if getattr(e.response, "status_code", None) == 404:
