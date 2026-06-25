@@ -14,7 +14,7 @@ pip install .   # from the repository root
 
 aicmd configure set \
     --provider ollama \
-    --model qwen2.5:0.5b \
+    --model qwen2.5:0.5b-instruct \
     --ollama-url http://localhost:11434 \
     --timeout 300
 
@@ -39,8 +39,13 @@ aicmd configure list-openrouter-models --free-only
 Your `~/.aicmd.yaml` will contain entries you set, e.g.:
 ```yaml
 provider: ollama
-model: qwen2.5:0.5b
+model: qwen2.5:0.5b-instruct
 ollama_url: http://localhost:11434
+ollama_max_tokens: 80  # default limit for concise summaries
+ollama_prompt_template: |
+  Summarize the following text in ONE concise sentence, preserving key facts and proper nouns. Do not add explanations or extra information.
+
+  {{text}}
 # timeout is optional and defaults to 300 seconds if not set
 # openrouter_key: <your‑key>   # only needed for OpenRouter
 ```
