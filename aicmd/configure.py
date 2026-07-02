@@ -24,21 +24,12 @@ def _save_yaml(data: dict) -> None:
 @app.command()
 def set(
     provider: str = typer.Option(None, "--provider", help="ollama or openrouter"),
-    model: str = typer.Option(None, "--model", help="default model name"),
-    ollama_url: str = typer.Option(None, "--ollama-url", help="URL of local Ollama server"),
-    openrouter_key: str = typer.Option(None, "--openrouter-key", help="API key for OpenRouter"),
     timeout: int = typer.Option(None, "--timeout", help="Request timeout in seconds for summarize"),
 ):
     """Create or update ~/.aicmd.yaml with the supplied values."""
     cfg = cfg_mod.load()
     if provider is not None:
         cfg["provider"] = provider
-    if model is not None:
-        cfg["model"] = model
-    if ollama_url is not None:
-        cfg["ollama_url"] = ollama_url
-    if openrouter_key is not None:
-        cfg["openrouter_key"] = openrouter_key
     if timeout is not None:
         cfg["timeout"] = timeout
     _save_yaml(cfg)
