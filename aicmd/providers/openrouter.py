@@ -6,6 +6,11 @@ from .. import config as cfg_mod
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
 class OpenRouterProvider(Provider):
+    def describe_image(self, image_path: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60) -> str:
+        """OpenRouter does not support image description in this CLI.
+        Raises a clear error to inform the user.
+        """
+        raise NotImplementedError("Image description is not supported for OpenRouter provider")
     def __init__(self):
         cfg = cfg_mod.load()
         self.api_key = cfg.get("openrouter_key")
