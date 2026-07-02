@@ -9,7 +9,7 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 class OllamaProvider(Provider):
     def describe_image(self, image_path: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60) -> str:
-        """Describe an image using the Moondream model (or specified model).
+        """Describe an image.
 
         The image is read and base64‑encoded, then sent to Ollama with a prompt that asks for a concise description.
         """
@@ -21,12 +21,10 @@ class OllamaProvider(Provider):
         cfg_local = cfg_mod.load()
         prompt_template = cfg_local.get("ollama_image_prompt_template",
             "Describe the image in ONE concise sentence.")
-        # Use the template directly as the prompt (the image is provided via the images field)
-        prompt = ""
 
         # Determine model (default to moondream if not overridden)
         # Model for image description (default Moondream) can be configured separately
-        default_image_model = cfg_local.get("ollama_describe_model", "moondream")
+        default_image_model = cfg_local.get("ollama_describe_model", "ahmadwaqar/smolvlm2-256m-video:q8_0")
         # Force use of the image description model unless the caller explicitly overrides
         effective_model = model if model is not None else default_image_model
         # Token limit for description, configurable separately
@@ -34,7 +32,7 @@ class OllamaProvider(Provider):
         effective_max = max_tokens if max_tokens is not None else default_max
         payload = {
             "model": effective_model,
-            "prompt": prompt,
+            "prompt": prompt_template,
             "stream": False,
             "temperature": 0.1,
             "max_tokens": effective_max,
@@ -46,8 +44,6 @@ class OllamaProvider(Provider):
             data = resp.json()
             description = data.get("response", "").strip()
             # Log the full response for debugging
-            print("DEBUG describe_image response:", data, file=sys.stderr)
-            print(description, end="", flush=True)
             return description
         except httpx.HTTPError as e:
             # If the model is not found, pull it and retry (same logic as summarize)
