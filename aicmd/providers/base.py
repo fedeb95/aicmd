@@ -3,7 +3,7 @@ from typing import Optional
 
 class Provider(ABC):
     @abstractmethod
-    def summarize(self, text: str, *, model: Optional[str] = None, max_tokens: int = 256, timeout: int = 60) -> str:
+    def summarize(self, text: str, *, model: Optional[str] = None, max_tokens: int = 256, timeout: int = 60, stream_callback = None) -> str:
         """Return a concise summary of *text*.
         Implementations should raise an exception on failure.
         """
@@ -11,6 +11,12 @@ class Provider(ABC):
     @abstractmethod
     def describe_image(self, image_path: str, *, model: Optional[str] = None, max_tokens: int = 256, timeout: int = 60) -> str:
         """Describe an image located at *image_path*.
+        Implementations should raise an exception on failure.
+        """
+        ...
+    @abstractmethod
+    def rewrite(self, text: str, style: str, *, model: Optional[str] = None, max_tokens: int = 256, timeout: int = 60, stream_callback = None) -> str:
+        """Rewrite *text* in the specified *style*.
         Implementations should raise an exception on failure.
         """
         ...

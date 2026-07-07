@@ -2,6 +2,8 @@
 
 AI‑powered Unix‑style command suite written in Python.
 
+The projects targets low resources hardware first, enabling almost anyone to run local models.
+
 ## Installation
 ```bash
 pip install .   # from the repository root
@@ -14,8 +16,6 @@ pip install .   # from the repository root
 
 aicmd configure set \
     --provider ollama \
-    --model qwen2.5:0.5b-instruct \
-    --ollama-url http://localhost:11434 \
     --timeout 300
 ```
 
@@ -53,7 +53,7 @@ Your `~/.aicmd.yaml` will contain entries you set, e.g.:
 ```yaml
 timeout: 3000
 provider: ollama
-ollama_summarize_model: deepseek-coder:1.3b
+ollama_summarize_model: qwen2.5:0.5b-instruct
 ollama_describe_model: ahmadwaqar/smolvlm2-256m-video:q8_0
 ollama_url: http://localhost:11434
 # openrouter_key: <your‑key>   # only needed for OpenRouter

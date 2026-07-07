@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>aicmd Web Interface</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar di navigazione a sinistra -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="logo-icon">🌿</span>
+                <h2 class="logo-text">aicmd <span class="accent-text">Web</span></h2>
+            </div>
+            
+            <nav class="sidebar-menu">
+                <button class="menu-item active" data-tab="summarize-section">
+                    <span class="menu-icon">📝</span>
+                    <span class="menu-text">Sintesi Testi</span>
+                </button>
+                <button class="menu-item" data-tab="describe-section">
+                    <span class="menu-icon">🖼️</span>
+                    <span class="menu-text">Descrizione Immagini</span>
+                </button>
+                <button class="menu-item" data-tab="rewrite-section">
+                    <span class="menu-icon">✍️</span>
+                    <span class="menu-text">Riscrittura Testi</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <p>Collegato ad <code>aicmd</code> CLI</p>
+                <p class="theme-badge">Relaxing Green Edition</p>
+            </div>
+        </aside>
+
+        <!-- Contenuto Principale a destra -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-title">
+                    <h1 id="panel-title">Sintesi Testi</h1>
+                    <p class="subtitle" id="panel-subtitle">Inserisci o incolla un testo per estrarre un riassunto conciso.</p>
+                </div>
+                
+                <!-- Pannello di Configurazione Integrato nell'Header -->
+                <section class="config-bar glass-card">
+                    <div class="config-item">
+                        <label for="api-url">API URL</label>
+                        <input type="text" id="api-url" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
+                    </div>
+                    <div class="config-item">
+                        <label for="provider-select">Provider</label>
+                        <select id="provider-select">
+                            <option value="">(Default Config)</option>
+                            <option value="ollama">Ollama (Locale)</option>
+                            <option value="openrouter">OpenRouter (Cloud)</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label for="model-input">Modello</label>
+                        <input type="text" id="model-input" placeholder="Default del provider">
+                    </div>
+                </section>
+            </header>
+
+            <!-- Contenitore dei Pannelli Funzionali -->
+            <div class="panels-container">
+                
+                <!-- Pannello 1: Summarize -->
+                <section class="feature-panel active" id="summarize-section">
+                    <div class="panel-card glass-card">
+                        <div class="card-body">
+                            <div class="input-group">
+                                <label for="text-input">Testo da riassumere</label>
+                                <textarea id="text-input" placeholder="Scrivi o incolla il tuo testo qui per generare un riassunto..."></textarea>
+                                <div class="char-counter"><span id="char-count">0</span> caratteri</div>
+                            </div>
+                            
+                            <button id="btn-summarize" class="btn btn-primary">
+                                <span class="btn-text">Genera Riassunto</span>
+                                <div class="loader hidden"></div>
+                            </button>
+
+                            <div id="summarize-result-container" class="result-container hidden">
+                                <h3>Sintesi Generata:</h3>
+                                <div id="summarize-result" class="result-box"></div>
+                                <button class="btn btn-secondary btn-copy" onclick="copyText('summarize-result')">Copia negli appunti</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Pannello 2: Describe -->
+                <section class="feature-panel hidden" id="describe-section">
+                    <div class="panel-card glass-card">
+                        <div class="card-body">
+                            <div class="input-group">
+                                <label>Seleziona o trascina un'immagine</label>
+                                <div class="upload-zone" id="drop-zone">
+                                    <input type="file" id="file-input" accept="image/*" class="hidden-input">
+                                    <div class="upload-prompt" id="upload-prompt">
+                                        <span class="upload-icon">📸</span>
+                                        <p>Trascina qui la tua immagine o <span class="browse-link">sfoglia i file</span></p>
+                                        <span class="upload-info">Supporta PNG, JPG, JPEG</span>
+                                    </div>
+                                    <div class="preview-container hidden" id="preview-container">
+                                        <img id="image-preview" src="#" alt="Preview">
+                                        <button id="btn-remove-image" class="btn-remove">✕</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button id="btn-describe" class="btn btn-primary" disabled>
+                                <span class="btn-text">Descrivi Immagine</span>
+                                <div class="loader hidden"></div>
+                            </button>
+
+                            <div id="describe-result-container" class="result-container hidden">
+                                <h3>Descrizione dell'Immagine:</h3>
+                                <div id="describe-result" class="result-box"></div>
+                                <button class="btn btn-secondary btn-copy" onclick="copyText('describe-result')">Copia negli appunti</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Pannello 3: Rewrite -->
+                <section class="feature-panel hidden" id="rewrite-section">
+                    <div class="panel-card glass-card">
+                        <div class="card-body">
+                            <div class="input-group" style="margin-bottom: 0.5rem;">
+                                <label for="rewrite-text-input">Testo originale</label>
+                                <textarea id="rewrite-text-input" placeholder="Inserisci il testo originale che desideri riscrivere..."></textarea>
+                            </div>
+                            <div class="config-item" style="margin-bottom: 0.5rem; width: 100%;">
+                                <label for="rewrite-style-input">Stile di riscrittura o istruzioni</label>
+                                <input type="text" id="rewrite-style-input" placeholder="Es: in modo più formale, stile pirate, per email professionale, riassunto per punti...">
+                            </div>
+                            
+                            <button id="btn-rewrite" class="btn btn-primary">
+                                <span class="btn-text">Riscrivi Testo</span>
+                                <div class="loader hidden"></div>
+                            </button>
+
+                            <div id="rewrite-result-container" class="result-container hidden">
+                                <h3>Testo Riscritto:</h3>
+                                <div id="rewrite-result" class="result-box"></div>
+                                <button class="btn btn-secondary btn-copy" onclick="copyText('rewrite-result')">Copia negli appunti</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+            
+            <!-- Toast Notification -->
+            <div id="toast" class="toast hidden">
+                <span id="toast-message"></span>
+                <button id="toast-close" class="toast-close" aria-label="Chiudi">✕</button>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

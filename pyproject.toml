@@ -11,6 +11,9 @@ dependencies = [
     "typer[all]",
     "httpx",
     "pyyaml",
+    "fastapi",
+    "uvicorn",
+    "python-multipart"
 ]
 
 [tool.setuptools]

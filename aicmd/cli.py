@@ -2,7 +2,7 @@ import sys
 import typer
 from . import configure
 from pathlib import Path
-from . import config, providers
+from . import config, providers, services
 
 app = typer.Typer(help="AI‑powered Unix‑style commands")
 
@@ -15,27 +15,35 @@ def summarize(
     timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)")
 ):
     """Summarize input text using the selected LLM backend."""
-    cfg = config.load()
-    prov = providers.get_provider(provider or cfg.get("provider"))
-    if not prov:
-        typer.echo("[error] No provider configured or supplied", err=True)
-        raise typer.Exit(code=1)
-
     # read input
     if file is None:
         text = sys.stdin.read()
     else:
         text = file.read_text()
 
-    effective_timeout = timeout if timeout is not None else cfg.get("timeout", 300)
-    # Use separate config key for summarization model
-    summary = prov.summarize(
-        text,
-        model=model or cfg.get("ollama_summarize_model"),
-        max_tokens=max_tokens,
-        timeout=effective_timeout,
-    )
-    typer.echo(summary)
+    has_streamed = False
+    def stream_callback(chunk: str):
+        nonlocal has_streamed
+        has_streamed = True
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    try:
+        summary = services.summarize_text(
+            text,
+            provider=provider or None,
+            model=model or None,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream_callback=stream_callback,
+        )
+        if not has_streamed:
+            typer.echo(summary)
+        else:
+            typer.echo("") # trailing newline
+    except Exception as e:
+        typer.echo(f"[error] {str(e)}", err=True)
+        raise typer.Exit(code=1)
 
 @app.command()
 def describe(
@@ -46,21 +54,69 @@ def describe(
     timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)"),
 ):
     """Describe an input image using the selected LLM backend (default Moondream)."""
-    cfg = config.load()
-    prov = providers.get_provider(provider or cfg.get("provider"))
-    if not prov:
-        typer.echo("[error] No provider configured or supplied", err=True)
+    try:
+        description = services.describe_image(
+            image,
+            provider=provider or None,
+            model=model or None,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        typer.echo(description)
+    except Exception as e:
+        typer.echo(f"[error] {str(e)}", err=True)
         raise typer.Exit(code=1)
-    if not hasattr(prov, "describe_image"):
-        typer.echo("[error] Selected provider does not support image description", err=True)
+
+@app.command()
+def rewrite(
+    style: str = typer.Argument(..., help="The style description or instructions to rewrite the text"),
+    file: Path = typer.Argument(None, help="File to read; reads stdin if omitted"),
+    provider: str = typer.Option("", help="ollama|openrouter; auto‑detect if omitted"),
+    model: str = typer.Option("", help="Model name; provider default if omitted"),
+    max_tokens: int = typer.Option(256, help="Maximum tokens for the rewritten text"),
+    timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)"),
+):
+    """Rewrite input text using a specified style/instruction."""
+    # read input
+    if file is None:
+        text = sys.stdin.read()
+    else:
+        text = file.read_text()
+
+    has_streamed = False
+    def stream_callback(chunk: str):
+        nonlocal has_streamed
+        has_streamed = True
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    try:
+        rewritten = services.rewrite_text(
+            text,
+            style,
+            provider=provider or None,
+            model=model or None,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream_callback=stream_callback,
+        )
+        if not has_streamed:
+            typer.echo(rewritten)
+        else:
+            typer.echo("") # trailing newline
+    except Exception as e:
+        typer.echo(f"[error] {str(e)}", err=True)
         raise typer.Exit(code=1)
-    effective_timeout = timeout if timeout is not None else cfg.get("timeout", 300)
-    description = prov.describe_image(
-        str(image),
-        max_tokens=max_tokens,
-        timeout=effective_timeout,
-    )
-    typer.echo(description)
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind address"),
+    port: int = typer.Option(8000, help="Port to listen on"),
+):
+    """Start the API server exposing aicmd functionalities."""
+    import uvicorn
+    typer.echo(f"Starting API server on http://{host}:{port}...")
+    uvicorn.run("aicmd.api:app", host=host, port=port, reload=True)
 
 app.add_typer(configure.app, name="configure")
 

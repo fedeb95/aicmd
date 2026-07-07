@@ -1,3 +1,4 @@
+import yaml
 import json
 import os
 from pathlib import Path
@@ -9,17 +10,22 @@ app = typer.Typer(help="Helper commands for configuring providers")
 
 CONFIG_PATH = Path.home() / ".aicmd.yaml"
 
+
+def _load_file_only() -> dict:
+    """Read ~/.aicmd.yaml directly, without env-var injection."""
+    if not CONFIG_PATH.is_file():
+        return {}
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        loaded = yaml.safe_load(f)
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def _save_yaml(data: dict) -> None:
-    # Simple yaml writer (no external lib needed)
-    lines = []
-    for k, v in data.items():
-        if isinstance(v, dict):
-            lines.append(f"{k}:")
-            for kk, vv in v.items():
-                lines.append(f"  {kk}: {vv}")
-        else:
-            lines.append(f"{k}: {v}")
-    CONFIG_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    """Write *data* to ~/.aicmd.yaml using proper YAML serialisation."""
+    CONFIG_PATH.write_text(
+        yaml.dump(data, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
 
 @app.command()
 def set(
@@ -27,7 +33,8 @@ def set(
     timeout: int = typer.Option(None, "--timeout", help="Request timeout in seconds for summarize"),
 ):
     """Create or update ~/.aicmd.yaml with the supplied values."""
-    cfg = cfg_mod.load()
+    # Load only the file (no env vars) so we don't accidentally persist env values
+    cfg = _load_file_only()
     if provider is not None:
         cfg["provider"] = provider
     if timeout is not None:

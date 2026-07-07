@@ -11,7 +11,8 @@ def load() -> dict:
     cfg = {}
     if DEFAULT_PATH.is_file():
         with open(DEFAULT_PATH, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
+            loaded = yaml.safe_load(f)
+        cfg = loaded if isinstance(loaded, dict) else {}
     # override with env vars if present
     env_map = {
         "provider": os.getenv("AI_PROVIDER"),
