@@ -47,7 +47,46 @@ menuItems.forEach(item => {
 // DOM Elements
 const apiUrlInput = document.getElementById('api-url');
 const providerSelect = document.getElementById('provider-select');
-const modelInput = document.getElementById('model-input');
+const modelSelect = document.getElementById('model-select');
+
+// ---- Model loader ----
+async function fetchModels() {
+    const apiUrl = apiUrlInput.value.trim().replace(/\/$/, '');
+    const provider = providerSelect.value;
+    modelSelect.innerHTML = '<option value="">Caricamento...</option>';
+    modelSelect.disabled = true;
+    try {
+        const url = provider
+            ? `${apiUrl}/api/models?provider=${encodeURIComponent(provider)}`
+            : `${apiUrl}/api/models`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const models = data.models || [];
+        modelSelect.innerHTML = '<option value="">(Default provider)</option>';
+        models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            modelSelect.appendChild(opt);
+        });
+    } catch (e) {
+        modelSelect.innerHTML = '<option value="">(Default provider)</option>';
+        console.warn('Could not load models:', e.message);
+    } finally {
+        modelSelect.disabled = false;
+    }
+}
+
+// Reload models when provider or API URL changes
+providerSelect.addEventListener('change', fetchModels);
+apiUrlInput.addEventListener('change', fetchModels);
+
+// Initial load
+fetchModels();
 
 // Summarize elements
 const textInput = document.getElementById('text-input');
@@ -195,7 +234,7 @@ btnSummarize.addEventListener('click', async () => {
     try {
         const apiUrl = apiUrlInput.value.trim().replace(/\/$/, "");
         const provider = providerSelect.value;
-        const model = modelInput.value.trim();
+        const model = modelSelect.value;
         
         const response = await fetch(`${apiUrl}/api/summarize`, {
             method: 'POST',
@@ -239,7 +278,7 @@ btnDescribe.addEventListener('click', async () => {
     try {
         const apiUrl = apiUrlInput.value.trim().replace(/\/$/, "");
         const provider = providerSelect.value;
-        const model = modelInput.value.trim();
+        const model = modelSelect.value;
         
         const formData = new FormData();
         formData.append('file', selectedFile);
@@ -287,7 +326,7 @@ btnRewrite.addEventListener('click', async () => {
     try {
         const apiUrl = apiUrlInput.value.trim().replace(/\/$/, "");
         const provider = providerSelect.value;
-        const model = modelInput.value.trim();
+        const model = modelSelect.value;
         
         const response = await fetch(`${apiUrl}/api/rewrite`, {
             method: 'POST',

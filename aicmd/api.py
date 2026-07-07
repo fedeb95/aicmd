@@ -99,3 +99,41 @@ async def describe(
             temp_file_path.unlink()
         if os.path.exists(temp_dir):
             os.rmdir(temp_dir)
+
+@app.get("/api/models")
+def list_models(provider: Optional[str] = None):
+    """Return available models for the given provider (ollama or openrouter).
+    Falls back to the configured default provider if none is specified.
+    """
+    import httpx as _httpx
+    from . import config as _cfg
+
+    cfg = _cfg.load()
+    prov = (provider or cfg.get("provider") or "ollama").lower()
+
+    try:
+        if prov == "ollama":
+            base = cfg.get("ollama_url", "http://localhost:11434").rstrip("/")
+            r = _httpx.get(f"{base}/api/tags", timeout=8)
+            r.raise_for_status()
+            models = [m.get("name") for m in r.json().get("models", [])]
+            return {"provider": prov, "models": models}
+
+        elif prov == "openrouter":
+            key = cfg.get("openrouter_key")
+            if not key:
+                raise HTTPException(status_code=400, detail="OpenRouter API key not configured")
+            headers = {"Authorization": f"Bearer {key}"}
+            r = _httpx.get("https://openrouter.ai/api/v1/models", headers=headers, timeout=12)
+            r.raise_for_status()
+            models = [m.get("id") for m in r.json().get("data", []) if m.get("id")]
+            models.sort()
+            return {"provider": prov, "models": models}
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown provider: {prov}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch models: {e}")
