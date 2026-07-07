@@ -65,6 +65,28 @@ Both summarize and describe work very well with ~1 page long text and ~1MB size 
 
 Better hardware makes it possibile to use better model and obtain faster and/or better answers.
 
+## Chat command
+Send a single message in an ephemeral in-memory chat and get a single-line response `chatid:message`.
+
+One-off message example (prints chat id and response on one line):
+
+```
+# send a single message via stdin
+cat prompt.txt | aicmd chat
+# or as argument
+aicmd chat "Hello, can you help me summarize this report?"
+```
+
+Resume an existing chat by passing --chat-id:
+
+```
+aicmd chat --chat-id <chat_id> "Another question"
+```
+
+Options mirror existing commands: `--provider`, `--model`, `--max-tokens`, `--timeout`.
+
+Chats are ephemeral and stored in-process; to persist chats across runs add a storage backend.
+
 ## Extending
 Add new sub‑commands under `aicmd/cli.py` and implement additional providers in `aicmd/providers/`.
 

@@ -109,6 +109,65 @@ def rewrite(
         raise typer.Exit(code=1)
 
 @app.command()
+def chat(
+    chat_id: str = typer.Option("", help="Existing chat id to continue"),
+    message: str = typer.Argument(None, help="Message to send; if omitted reads stdin and sends it as the message"),
+    provider: str = typer.Option("", help="ollama|openrouter; auto‑detect if omitted"),
+    model: str = typer.Option("", help="Model name; provider default if omitted"),
+    max_tokens: int = typer.Option(256, help="Maximum tokens for the response"),
+    timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)"),
+):
+    """Send a single message in an in-memory chat and print `chatid:message` on a single line.
+
+    Reads stdin if piped. Does NOT start a REPL. Always performs a one-off turn and exits.
+    """
+    # read stdin if piped
+    stdin_text = sys.stdin.read() if not sys.stdin.isatty() else ""
+    try:
+        if message is None and stdin_text.strip():
+            message = stdin_text
+        if message is None:
+            typer.echo("[error] No message provided (pass as argument or via stdin)", err=True)
+            raise typer.Exit(code=2)
+
+        # Ensure chat exists and get id so it can be printed before streaming
+        cid = services.create_chat(chat_id or None)
+
+        has_streamed = False
+        def stream_print(chunk: str):
+            nonlocal has_streamed
+            has_streamed = True
+            # write chunk directly after the id prefix
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+
+        # print id prefix without newline, stream will follow
+        sys.stdout.write(f"{cid}:")
+        sys.stdout.flush()
+
+        cid_returned, reply = services.send_chat_message(
+            cid,
+            message,
+            provider=provider or None,
+            model=model or None,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream_callback=stream_print,
+        )
+
+        # If provider didn't stream, print the reply now
+        if not has_streamed:
+            sys.stdout.write(reply or "")
+            sys.stdout.flush()
+        # finish with newline
+        sys.stdout.write("\n")
+        typer.echo("", nl=False)
+    except Exception as e:
+        typer.echo(f"[error] {str(e)}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind address"),
     port: int = typer.Option(8000, help="Port to listen on"),

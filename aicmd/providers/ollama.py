@@ -206,3 +206,75 @@ class OllamaProvider(Provider):
             else:
                 raise
 
+    def chat(self, messages: list, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60, stream_callback = None) -> str:
+        """Simple chat support by composing messages into a single prompt and calling Ollama generate."""
+        cfg = cfg_mod.load()
+        default_model = cfg.get("ollama_summarize_model", "qwen2.5:0.5b-instruct")
+        effective_model = model if model is not None else default_model
+
+        # Build prompt: combine system messages at top, then interleave user/assistant messages
+        system_parts = [m['content'] for m in messages if m.get('role') == 'system']
+        conv_parts = []
+        for m in messages:
+            role = m.get('role')
+            if role == 'system':
+                continue
+            content = m.get('content', '')
+            if role == 'user':
+                conv_parts.append(f"User: {content}")
+            elif role == 'assistant':
+                conv_parts.append(f"Assistant: {content}")
+            else:
+                conv_parts.append(f"{role.capitalize()}: {content}")
+        prompt = "\n\n".join(system_parts + conv_parts + ["Assistant:"])
+
+        payload = {
+            "model": effective_model,
+            "prompt": prompt,
+            "stream": True,
+            "temperature": 0.2,
+        }
+        try:
+            with self.client.stream("POST", f"{self.base_url}/api/generate", json=payload, timeout=timeout) as resp:
+                resp.raise_for_status()
+                prev_response = ""
+                for line in resp.iter_text():
+                    try:
+                        obj = json.loads(line)
+                        if "response" in obj:
+                            chunk = obj["response"]
+                            if stream_callback:
+                                stream_callback(chunk)
+                            prev_response += chunk
+                    except json.JSONDecodeError:
+                        if stream_callback:
+                            stream_callback(line)
+                return prev_response.strip()
+        except httpx.HTTPError as e:
+            if getattr(e.response, "status_code", None) == 404:
+                model_name = payload["model"]
+                print(f"Ollama model '{model_name}' not found. Pulling model...", file=sys.stderr)
+                pull_resp = self.client.post(f"{self.base_url}/api/pull", json={"name": model_name})
+                pull_resp.raise_for_status()
+                with self.client.stream("POST", f"{self.base_url}/api/generate", json=payload, timeout=timeout) as resp:
+                    resp.raise_for_status()
+                    prev_response = ""
+                    for line in resp.iter_text():
+                        try:
+                            obj = json.loads(line)
+                            if "response" in obj:
+                                if obj["response"].startswith(prev_response):
+                                    new_part = obj["response"][len(prev_response):]
+                                else:
+                                    new_part = obj["response"]
+                                if new_part:
+                                    if stream_callback:
+                                        stream_callback(new_part)
+                                prev_response = obj["response"]
+                        except json.JSONDecodeError:
+                            if stream_callback:
+                                key = line
+                                stream_callback(key)
+                    return prev_response.strip()
+            else:
+                raise

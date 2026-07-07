@@ -21,7 +21,7 @@ class OpenRouterProvider(Provider):
 
     def summarize(self, text: str, *, model: str | None = None, max_tokens: int = 256, timeout: int = 60, stream_callback = None) -> str:
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"******",
             "Content-Type": "application/json",
         }
         payload = {
@@ -51,7 +51,7 @@ class OpenRouterProvider(Provider):
 
     def rewrite(self, text: str, style: str, *, model: str | None = None, max_tokens: int = 256, timeout: int = 60, stream_callback = None) -> str:
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"******",
             "Content-Type": "application/json",
         }
         payload = {
@@ -78,3 +78,27 @@ class OpenRouterProvider(Provider):
             stream_callback(rewritten)
         return rewritten
 
+    def chat(self, messages: list, *, model: str | None = None, max_tokens: int = 256, timeout: int = 60, stream_callback = None) -> str:
+        """Forward the chat messages to OpenRouter's chat/completions endpoint."""
+        headers = {
+            "Authorization": f"******",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model or self.default_model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.2,
+        }
+        resp = self.client.post(OPENROUTER_ENDPOINT, headers=headers, json=payload, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        try:
+            choice = data["choices"][0]
+            message = choice.get("message", {}) if isinstance(choice, dict) else {}
+            content = (message.get("content", "") if isinstance(message, dict) else message or "").strip()
+        except (KeyError, IndexError, TypeError) as exc:
+            raise RuntimeError(f"Unexpected response from OpenRouter: {data}") from exc
+        if stream_callback:
+            stream_callback(content)
+        return content
