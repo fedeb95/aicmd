@@ -141,6 +141,86 @@ def rewrite_text(
         stream_callback=stream_callback,
     )
 
+def _normalize_language(lang: str) -> str:
+    """Normalize language codes/names to readable language names for instructions."""
+    if not lang:
+        return lang
+    mapping = {
+        'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'pt': 'Portuguese',
+        'zh': 'Chinese', 'zh-cn': 'Chinese (Simplified)', 'zh-tw': 'Chinese (Traditional)',
+        'ja': 'Japanese', 'ko': 'Korean', 'it': 'Italian', 'ru': 'Russian'
+    }
+    key = lang.strip().lower()
+    return mapping.get(key, lang)
+
+
+def translate_text(
+    text: str,
+    target_lang: str,
+    source_lang: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    max_tokens: int = 256,
+    timeout: Optional[int] = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+) -> str:
+    """Translate text into target_lang. Prefer provider.chat when available for better translation fidelity.
+
+    If provider has no chat, fall back to provider.rewrite with an explicit instruction.
+    """
+    cfg = config.load()
+    prov_name = provider or cfg.get("provider") or "ollama"
+    prov = providers.get_provider(prov_name)
+    if not prov:
+        raise ValueError(f"No provider configured or found for '{prov_name}'")
+
+    effective_timeout = timeout if timeout is not None else cfg.get("timeout", 300)
+    resolved_model = model or None
+
+    tname = _normalize_language(target_lang)
+    sname = _normalize_language(source_lang) if source_lang else None
+
+    # Strong system instruction for translation
+    sys_instr = (
+        f"You are a professional translator. Always translate the user's text into {tname}. "
+        "Output ONLY the translated text, preserving formatting, code blocks, and lists. "
+        "Do not add explanations or commentary. If the source language is provided, use it; otherwise detect the source language automatically."
+    )
+
+    # If provider supports native chat, use it with system + user messages to get best fidelity and streaming
+    messages = [{"role": "system", "content": sys_instr}]
+    if sname:
+        messages.append({"role": "system", "content": f"Source language hint: {sname}."})
+    messages.append({"role": "user", "content": text})
+
+    if hasattr(prov, 'chat'):
+        if stream_callback:
+            acc = []
+            def cb(chunk: str):
+                acc.append(chunk)
+                stream_callback(chunk)
+            reply = prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout, stream_callback=cb)
+            if acc:
+                return "".join(acc)
+            return reply or ""
+        else:
+            return prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout)
+
+    # Fallback: use rewrite with a clear instruction
+    if sname:
+        instr = f"Translate the following text from {sname} to {tname}. Output only the translated text, preserving meaning and formatting."
+    else:
+        instr = f"Translate the following text to {tname}. Output only the translated text, preserving meaning and formatting."
+
+    return prov.rewrite(
+        text,
+        instr,
+        model=resolved_model,
+        max_tokens=max_tokens,
+        timeout=effective_timeout,
+        stream_callback=stream_callback,
+    )
+
 # Chat-related helpers
 
 def create_chat(chat_id: Optional[str] = None) -> str:

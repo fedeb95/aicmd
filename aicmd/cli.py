@@ -168,6 +168,53 @@ def chat(
 
 
 @app.command()
+def translate(
+    target: str = typer.Option(..., "--to", "-t", help="Target language (e.g., en, es, fr or 'English', 'Spanish')"),
+    source: str = typer.Option("", "--from", "-f", help="Source language (optional)"),
+    file: Path = typer.Argument(None, help="File to read; reads stdin if omitted"),
+    provider: str = typer.Option("", help="ollama|openrouter; auto‑detect if omitted"),
+    model: str = typer.Option("", help="Model name; provider default if omitted"),
+    max_tokens: int = typer.Option(512, help="Maximum tokens for the translation"),
+    timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)"),
+):
+    """Translate input text to the specified target language.
+
+    Reads stdin when no file is provided. Outputs the translated text to stdout. Supports streaming when provider supports it.
+    """
+    # read input
+    if file is None:
+        text = sys.stdin.read()
+    else:
+        text = file.read_text()
+
+    has_streamed = False
+    def stream_callback(chunk: str):
+        nonlocal has_streamed
+        has_streamed = True
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    try:
+        translated = services.translate_text(
+            text,
+            target,
+            source or None,
+            provider=provider or None,
+            model=model or None,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream_callback=stream_callback,
+        )
+        if not has_streamed:
+            typer.echo(translated)
+        else:
+            typer.echo("")
+    except Exception as e:
+        typer.echo(f"[error] {str(e)}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind address"),
     port: int = typer.Option(8000, help="Port to listen on"),

@@ -83,6 +83,15 @@ Resume an existing chat by passing --chat-id:
 aicmd chat --chat-id <chat_id> "Another question"
 ```
 
+Translate text example:
+
+```
+# translate stdin to Spanish
+cat doc.txt | aicmd translate --to=es
+# translate a file
+aicmd translate --to=fr README.md
+```
+
 Options mirror existing commands: `--provider`, `--model`, `--max-tokens`, `--timeout`.
 
 Chats are ephemeral and stored in-process; to persist chats across runs add a storage backend.
