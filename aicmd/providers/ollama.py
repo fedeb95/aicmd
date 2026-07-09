@@ -5,7 +5,7 @@ import sys
 from .base import Provider
 from .. import config as cfg_mod
 
-DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_URL = "http://localhost:8080"
 
 class OllamaProvider(Provider):
     def describe_image(self, image_path: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60) -> str:

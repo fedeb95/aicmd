@@ -28,6 +28,10 @@
                     <span class="menu-icon">✍️</span>
                     <span class="menu-text">Riscrittura Testi</span>
                 </button>
+                <button class="menu-item" data-tab="translate-section">
+                    <span class="menu-icon">🌐</span>
+                    <span class="menu-text">Traduzione</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -54,6 +58,7 @@
                         <select id="provider-select">
                             <option value="">(Default Config)</option>
                             <option value="ollama">Ollama (Locale)</option>
+                            <option value="llamaserver">llama-server (Locale)</option>
                             <option value="openrouter">OpenRouter (Cloud)</option>
                         </select>
                     </div>
@@ -149,6 +154,39 @@
                                 <h3>Testo Riscritto:</h3>
                                 <div id="rewrite-result" class="result-box"></div>
                                 <button class="btn btn-secondary btn-copy" onclick="copyText('rewrite-result')">Copia negli appunti</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Pannello 4: Translate -->
+                <section class="feature-panel hidden" id="translate-section">
+                    <div class="panel-card glass-card">
+                        <div class="card-body">
+                            <div class="input-group" style="margin-bottom: 0.5rem;">
+                                <label for="translate-text-input">Testo da tradurre</label>
+                                <textarea id="translate-text-input" placeholder="Inserisci il testo che desideri tradurre..."></textarea>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.5rem;">
+                                <div class="config-item">
+                                    <label for="translate-from-input">Lingua sorgente (opzionale)</label>
+                                    <input type="text" id="translate-from-input" placeholder="Es: italiano, en, auto-rilevata">
+                                </div>
+                                <div class="config-item">
+                                    <label for="translate-to-input">Lingua destinazione</label>
+                                    <input type="text" id="translate-to-input" placeholder="Es: inglese, es, fr">
+                                </div>
+                            </div>
+                            
+                            <button id="btn-translate" class="btn btn-primary">
+                                <span class="btn-text">Traduci</span>
+                                <div class="loader hidden"></div>
+                            </button>
+
+                            <div id="translate-result-container" class="result-container hidden">
+                                <h3>Testo Tradotto:</h3>
+                                <div id="translate-result" class="result-box"></div>
+                                <button class="btn btn-secondary btn-copy" onclick="copyText('translate-result')">Copia negli appunti</button>
                             </div>
                         </div>
                     </div>

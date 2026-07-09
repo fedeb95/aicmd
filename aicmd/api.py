@@ -68,6 +68,31 @@ def rewrite(request: RewriteRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class TranslateRequest(BaseModel):
+    text: str
+    target: str
+    source: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    max_tokens: Optional[int] = 256
+    timeout: Optional[int] = None
+
+@app.post("/api/translate")
+def translate(request: TranslateRequest):
+    try:
+        translated = services.translate_text(
+            text=request.text,
+            target_lang=request.target,
+            source_lang=request.source,
+            provider=request.provider,
+            model=request.model,
+            max_tokens=request.max_tokens or 256,
+            timeout=request.timeout,
+        )
+        return {"translated": translated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/describe")
 async def describe(
     file: UploadFile = File(...),

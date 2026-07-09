@@ -16,6 +16,10 @@ const panelMeta = {
     'rewrite-section': {
         title: 'Riscrittura Testi',
         subtitle: 'Riscrivi un testo seguendo uno stile o delle istruzioni personalizzate.'
+    },
+    'translate-section': {
+        title: 'Traduzione',
+        subtitle: 'Traduci il tuo testo in una lingua diversa.'
     }
 };
 
@@ -112,6 +116,14 @@ const rewriteStyleInput = document.getElementById('rewrite-style-input');
 const btnRewrite = document.getElementById('btn-rewrite');
 const rewriteResultContainer = document.getElementById('rewrite-result-container');
 const rewriteResult = document.getElementById('rewrite-result');
+
+// Translate elements
+const translateTextInput = document.getElementById('translate-text-input');
+const translateFromInput = document.getElementById('translate-from-input');
+const translateToInput = document.getElementById('translate-to-input');
+const btnTranslate = document.getElementById('btn-translate');
+const translateResultContainer = document.getElementById('translate-result-container');
+const translateResult = document.getElementById('translate-result');
 
 // Toast Element
 const toast = document.getElementById('toast');
@@ -355,6 +367,59 @@ btnRewrite.addEventListener('click', async () => {
         console.error(err);
     } finally {
         setLoading(btnRewrite, false);
+    }
+});
+
+// Translate API Call
+btnTranslate.addEventListener('click', async () => {
+    const text = translateTextInput.value.trim();
+    const target = translateToInput.value.trim();
+    if (!text) {
+        showToast('Inserisci del testo da tradurre.', true);
+        return;
+    }
+    if (!target) {
+        showToast('Specifica la lingua di destinazione.', true);
+        return;
+    }
+    
+    setLoading(btnTranslate, true);
+    translateResultContainer.classList.add('hidden');
+    
+    try {
+        const apiUrl = apiUrlInput.value.trim().replace(/\/$/, "");
+        const provider = providerSelect.value;
+        const model = modelSelect.value;
+        const source = translateFromInput.value.trim();
+        
+        const response = await fetch(`${apiUrl}/api/translate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text: text,
+                target: target,
+                source: source || null,
+                provider: provider || null,
+                model: model || null
+            })
+        });
+        
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || 'Impossibile tradurre il testo.');
+        }
+        
+        const data = await response.json();
+        translateResult.textContent = data.translated;
+        translateResultContainer.classList.remove('hidden');
+        showToast('Traduzione completata!');
+    } catch (err) {
+        showToast(err.message, true);
+        console.error(err);
+    } finally {
+        setLoading(btnTranslate, false);
     }
 });
 
