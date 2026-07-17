@@ -5,9 +5,29 @@ from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import services
+
+import os
+import sys
+
+def resource_path(relative_path):
+    if getattr(sys, "frozen", False):
+        # PyInstaller
+        base_path = sys._MEIPASS
+    else:
+        # sviluppo normale
+        base_path = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+
+    return os.path.join(base_path, relative_path)
+
+
+frontend_path = resource_path("frontend")
 
 app = FastAPI(
     title="aicmd API",
@@ -23,6 +43,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 class SummarizeRequest(BaseModel):
     text: str
@@ -162,3 +183,16 @@ def list_models(provider: Optional[str] = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Could not fetch models: {e}")
+
+
+# Statici
+app.mount(
+    "/",
+    StaticFiles(directory=frontend_path, html=True),
+    name="frontend"
+)
+
+# Home page
+@app.get("/")
+def index():
+    return FileResponse("frontend/index.html")
