@@ -7,8 +7,11 @@ from aicmd.api import app
 import subprocess
 from aicmd.paths import app_path
 
+llama_process = None
 
 def start_llama():
+
+    global llama_process
 
     server = app_path(
         "runtime",
@@ -21,7 +24,7 @@ def start_llama():
         "qwen2.5-1.5b-instruct-q8_0.gguf"
     )
 
-    process = subprocess.Popen(
+    llama_process = subprocess.Popen(
         [
             server,
             "-m",
@@ -33,7 +36,7 @@ def start_llama():
         ]
     )
 
-    return process
+    return llama_process
 
 def start_api():
     uvicorn.run(
@@ -41,6 +44,17 @@ def start_api():
         host="127.0.0.1",
         port=8000
     )
+
+def on_closing():
+    global llama_process
+
+    if llama_process:
+        llama_process.terminate()
+
+        try:
+            llama_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            llama_process.kill()
 
 
 llama_process = start_llama()
@@ -50,12 +64,13 @@ threading.Thread(
     daemon=True
 ).start()
 
-webview.create_window(
+window = webview.create_window(
     "AICMD",
     "http://127.0.0.1:8000"
 )
 
-llama_process = start_llama()
+window.events.closing += on_closing
+
 
 try:
     webview.start()

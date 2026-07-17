@@ -5,7 +5,7 @@ import sys
 from .base import Provider
 from .. import config as cfg_mod
 
-DEFAULT_LLAMASERVER_URL = "http://localhost:8081"
+DEFAULT_LLAMASERVER_URL = "http://127.0.0.1:8081"
 
 class LlamaServerProvider(Provider):
     """Provider for llama.cpp's llama-server using OpenAI-compatible API."""
@@ -29,7 +29,7 @@ class LlamaServerProvider(Provider):
             with self.client.stream("POST", f"{self.base_url}/v1/chat/completions", json=payload, timeout=timeout) as resp:
                 resp.raise_for_status()
                 prev_response = ""
-                for line in resp.iter_text():
+                for line in resp.iter_lines():
                     line = line.strip()
                     if not line or line.startswith(":"):
                         continue
@@ -45,6 +45,8 @@ class LlamaServerProvider(Provider):
                             delta = choice.get("delta", {})
                             if "content" in delta:
                                 chunk = delta["content"]
+                                if chunk is None:
+                                    continue
                                 if stream_callback:
                                     stream_callback(chunk)
                                 prev_response += chunk
