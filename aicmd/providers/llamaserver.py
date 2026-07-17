@@ -5,7 +5,7 @@ import sys
 from .base import Provider
 from .. import config as cfg_mod
 
-DEFAULT_LLAMASERVER_URL = "http://localhost:8000"
+DEFAULT_LLAMASERVER_URL = "http://localhost:8081"
 
 class LlamaServerProvider(Provider):
     """Provider for llama.cpp's llama-server using OpenAI-compatible API."""
