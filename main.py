@@ -21,7 +21,12 @@ def start_llama():
 
     model = app_path(
         "models",
-        "qwen2.5-1.5b-instruct-q8_0.gguf"
+        "SmolVLM-500M-Instruct-f16.gguf"
+    )
+
+    multimodal = app_path(
+        "models",
+        "mmproj-SmolVLM-500M-Instruct-f16.gguf"
     )
 
     llama_process = subprocess.Popen(
@@ -29,6 +34,8 @@ def start_llama():
             server,
             "-m",
             model,
+            "--mmproj",
+            multimodal, 
             "--host",
             "127.0.0.1",
             "--port",
