@@ -14,6 +14,66 @@ class LlamaServerProvider(Provider):
         cfg = cfg_mod.load()
         self.base_url = cfg.get("llamaserver_url", DEFAULT_LLAMASERVER_URL).rstrip('/')
         self.client = httpx.Client()
+        # Sessione KV salvata da precaricare prima di ogni richiesta.
+        # None => nessuno slot (prompt inviato classicamente).
+        self.session_id = None
+
+    # ── Gestione slot KV (--slot-save-path) ───────────────────────────────
+    # Usiamo un solo slot fisico (id 0) e lo riusiamo per tutte le sessioni,
+    # salvando/ripristinando file KV diversi per ogni funzionalità.
+    SLOT_ID = 0
+
+    def save_slot(self, session_id: str, messages: list) -> None:
+        """Pre-carica i *messages* nel KV dello slot 0 e salva la sessione su disco."""
+        # 1. Calcola il KV del prompt nello slot (cache_prompt=True lo lascia "aperto")
+        r1 = self.client.post(
+            f"{self.base_url}/v1/chat/completions",
+            json={
+                "model": "default",
+                "messages": messages,
+                "max_tokens": 1,
+                "stream": False,
+                "slot_id": self.SLOT_ID,
+                "cache_prompt": True,
+            },
+            timeout=120,
+        )
+        r1.raise_for_status()
+        # 2. Salva il KV su file in --slot-save-path (filename nel body JSON)
+        r2 = self.client.post(
+            f"{self.base_url}/slots/{self.SLOT_ID}?action=save",
+            json={"filename": f"{session_id}.bin"},
+            timeout=120,
+        )
+        r2.raise_for_status()
+
+    def restore_slot(self, session_id: str, messages: list | None = None) -> None:
+        """Ripristina la sessione KV salvata per *session_id* nello slot 0.
+
+        Se il file non esiste (precaricamento mai avvenuto), lo crea on-demand
+        a partire da *messages* prima di ripristinare. Questo rende il restore
+        robusto anche se il precaricamento all'avvio non è completato.
+        """
+        resp = self.client.post(
+            f"{self.base_url}/slots/{self.SLOT_ID}?action=restore",
+            json={"filename": f"{session_id}.bin"},
+            timeout=120,
+        )
+        if resp.status_code >= 400 and messages is not None:
+            # File mancante o KV non valido: ricostruiamo la sessione on-demand.
+            self.save_slot(session_id, messages)
+            self.client.post(
+                f"{self.base_url}/slots/{self.SLOT_ID}?action=restore",
+                json={"filename": f"{session_id}.bin"},
+                timeout=120,
+            )
+
+    def set_session(self, session_id: str | None) -> None:
+        """Imposta la sessione KV da ripristinare prima della prossima richiesta.
+
+        Passa None per disattivare gli slot e inviare il prompt classicamente.
+        """
+        self.session_id = session_id
 
     def _chat_completion_request(self, messages: list, model: str | None, max_tokens: int, temperature: float, timeout: int, stream_callback=None) -> str:
         """Make a chat completion request to llama-server and handle streaming.
@@ -42,6 +102,7 @@ class LlamaServerProvider(Provider):
 
     def _attempt_request(self, messages: list, model: str | None, max_tokens: int, temperature: float, timeout: int, stream_callback=None) -> str:
         """Singola tentativo di chiamata HTTP a llama-server."""
+        use_slot = self.session_id is not None
         payload = {
             "model": model or "default",
             "messages": messages,
@@ -49,6 +110,15 @@ class LlamaServerProvider(Provider):
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if use_slot:
+            # Il prompt di sistema è già nel KV dello slot: ripristiniamo la
+            # sessione e NON ricalcoliamo il prompt (cache_prompt=False).
+            # Se il file di sessione non esiste ancora, lo ricostruiamo on-demand.
+            from .sessions import build_sessions
+            preload = build_sessions().get(self.session_id)
+            self.restore_slot(self.session_id, messages=preload)
+            payload["slot_id"] = self.SLOT_ID
+            payload["cache_prompt"] = False
 
         try:
             with self.client.stream("POST", f"{self.base_url}/v1/chat/completions", json=payload, timeout=timeout) as resp:
@@ -95,23 +165,23 @@ class LlamaServerProvider(Provider):
 
     def summarize(self, text: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60, stream_callback = None) -> str:
         """Generate a summary using llama-server with streaming output."""
+        from .sessions import SESSION_SUMMARIZE
         cfg = cfg_mod.load()
         default_model = cfg.get("llamaserver_summarize_model", "qwen2.5:0.5b-instruct")
         effective_model = model if model is not None else default_model
-
-        prompt_template = cfg.get("llamaserver_prompt_template",
-            "Summarize the following text in ONE concise sentence, preserving key facts and proper nouns. Do not add explanations or extra information.\n\n{{text}}")
-        prompt = prompt_template.replace("{{text}}", text)
 
         cfg_local = cfg_mod.load()
         default_max = cfg_local.get("llamaserver_max_tokens", 80)
         effective_max = max_tokens if max_tokens is not None else default_max
 
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant that creates concise summaries."},
-            {"role": "user", "content": prompt}
-        ]
+        # Il system prompt è nel KV (sessione summarize). A runtime inviamo
+        # il template con il testo reale come messaggio user.
+        prompt_template = cfg.get("llamaserver_prompt_template",
+            "Summarize the following text in ONE concise sentence, preserving key facts and proper nouns. Do not add explanations or extra information.\n\n{{text}}")
+        prompt = prompt_template.replace("{{text}}", text)
 
+        self.set_session(SESSION_SUMMARIZE)
+        messages = [{"role": "user", "content": prompt}]
         return self._chat_completion_request(messages, effective_model, effective_max, 0.1, timeout, stream_callback)
 
     def describe_image(self, image_path: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60) -> str:
@@ -138,16 +208,17 @@ class LlamaServerProvider(Provider):
         }
         media_type = media_type_map.get(ext, 'image/jpeg')
 
-        prompt_template = cfg.get("llamaserver_image_prompt_template",
-            "Describe the image in ONE concise sentence.")
-
         default_image_model = cfg.get("llamaserver_describe_model", "ahmadwaqar/smolvlm2-256m-video:q8_0")
         effective_model = model if model is not None else default_image_model
 
         default_max = cfg.get("llamaserver_describe_max_tokens", 80)
         effective_max = max_tokens if max_tokens is not None else default_max
 
-        # Use vision-compatible message format with image URL
+        # Il template di testo è inviato a runtime insieme all'immagine.
+        from .sessions import SESSION_DESCRIBE
+        self.set_session(SESSION_DESCRIBE)
+        prompt_template = cfg.get("llamaserver_image_prompt_template",
+            "Describe the image in ONE concise sentence.")
         messages = [
             {
                 "role": "user",
@@ -162,27 +233,28 @@ class LlamaServerProvider(Provider):
 
     def rewrite(self, text: str, style: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60, stream_callback = None) -> str:
         """Rewrite text in a given style using llama-server."""
+        from .sessions import SESSION_REWRITE
         cfg = cfg_mod.load()
         default_model = cfg.get("llamaserver_summarize_model", "qwen2.5:0.5b-instruct")
         effective_model = model if model is not None else default_model
-
-        prompt_template = cfg.get("llamaserver_rewrite_prompt_template",
-            "[Instruction]\nRewrite the text below to match this style or instruction: {{style}}\n\n[Constraints]\n- Output ONLY the final rewritten text.\n- Do NOT include any introductory words, conversational filler (such as \"Okay\", \"Sure\", \"Here is\"), or quotes around the output.\n- Do NOT explain your changes.\n\n[Text to Rewrite]\n{{text}}\n\n[Rewritten Text]\n")
-        prompt = prompt_template.replace("{{style}}", style).replace("{{text}}", text)
 
         cfg_local = cfg_mod.load()
         default_max = cfg_local.get("llamaserver_max_tokens", 256)
         effective_max = max_tokens if max_tokens is not None else default_max
 
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant that rewrites text according to specific styles or instructions."},
-            {"role": "user", "content": prompt}
-        ]
+        # Il system prompt è nel KV (sessione rewrite). A runtime inviamo
+        # il template completo con style + text come messaggio user.
+        prompt_template = cfg.get("llamaserver_rewrite_prompt_template",
+            "[Instruction]\nRewrite the text below to match this style or instruction: {{style}}\n\n[Constraints]\n- Output ONLY the final rewritten text.\n- Do NOT include any introductory words, conversational filler (such as \"Okay\", \"Sure\", \"Here is\"), or quotes around the output.\n- Do NOT explain your changes.\n\n[Text to Rewrite]\n{{text}}\n\n[Rewritten Text]\n")
+        prompt = prompt_template.replace("{{style}}", style).replace("{{text}}", text)
 
+        self.set_session(SESSION_REWRITE)
+        messages = [{"role": "user", "content": prompt}]
         return self._chat_completion_request(messages, effective_model, effective_max, 0.3, timeout, stream_callback)
 
     def chat(self, messages: list, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60, stream_callback = None) -> str:
         """Chat with the model using llama-server."""
+        from .sessions import SESSION_CHAT
         cfg = cfg_mod.load()
         default_model = cfg.get("llamaserver_summarize_model", "qwen2.5:0.5b-instruct")
         effective_model = model if model is not None else default_model
@@ -190,5 +262,6 @@ class LlamaServerProvider(Provider):
         cfg_local = cfg_mod.load()
         default_max = cfg_local.get("llamaserver_max_tokens", 512)
         effective_max = max_tokens if max_tokens is not None else default_max
+        self.set_session(SESSION_CHAT)
 
         return self._chat_completion_request(messages, effective_model, effective_max, 0.2, timeout, stream_callback)

@@ -4,6 +4,7 @@ import uvicorn
 
 from aicmd.api import app
 
+import os
 import subprocess
 from aicmd.paths import app_path
 
@@ -32,6 +33,9 @@ def start_llama():
         "mmproj-SmolVLM-500M-Instruct-f16.gguf"
     )
 
+    slots_dir = app_path("runtime", "slots")
+    os.makedirs(slots_dir, exist_ok=True)
+
     llama_process = subprocess.Popen(
         [
             server,
@@ -48,11 +52,13 @@ def start_llama():
             "-ub",
             "1024",
             "-c",
-            "2048",
+            "4096",
             "--host",
             "127.0.0.1",
             "--port",
-            "8081"
+            "8081",
+            "--slot-save-path",
+            slots_dir
         ]
     )
 
@@ -96,7 +102,19 @@ _cfg_data = _cfg.load()
 _provider = _cfg_data.get("provider", "").lower()
 
 if _provider == "llamaserver":
-    threading.Thread(target=start_llama, daemon=True).start()
+    start_llama()
+    # Precarica le sessioni KV (prompt di sistema) appena il server è pronto.
+    # Lo facciamo in background per non bloccare l'avvio della finestra.
+    def _init_sessions():
+        try:
+            from aicmd import providers as _providers
+            from aicmd.providers.sessions import init_saved_sessions
+            prov = _providers.get_provider("llamaserver")
+            if prov:
+                init_saved_sessions(prov)
+        except Exception as e:
+            print(f"[warn] precaricamento sessioni KV fallito: {e}")
+    threading.Thread(target=_init_sessions, daemon=True).start()
 
 # ───────────────────────────────────────────────────────────────────────────
 

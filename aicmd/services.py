@@ -1,7 +1,8 @@
 import sys
+import re
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
-from . import config, providers
+from . import config, providers, agent, agent_tools
 import uuid
 import sqlite3
 from datetime import datetime
@@ -181,13 +182,38 @@ def translate_text(
     sname = _normalize_language(source_lang) if source_lang else None
 
     # Strong system instruction for translation
+    # (il system prompt è già nel KV della sessione translate; qui inviamo
+    #  solo il testo + hint lingua come user message)
+    user_content = text
+    if sname:
+        user_content = f"[Source language: {sname}]\n[Target language: {tname}]\n\n{text}"
+    else:
+        user_content = f"[Target language: {tname}]\n\n{text}"
+
+    # Se il provider supporta le sessioni KV, ripristiniamo quella di translate
+    # (il system prompt è già nel KV) e inviamo solo il contenuto utente.
+    if hasattr(prov, 'set_session') and hasattr(prov, 'chat'):
+        from .providers.sessions import SESSION_TRANSLATE
+        prov.set_session(SESSION_TRANSLATE)
+        messages = [{"role": "user", "content": user_content}]
+        if stream_callback:
+            acc = []
+            def cb(chunk: str):
+                acc.append(chunk)
+                stream_callback(chunk)
+            reply = prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout, stream_callback=cb)
+            if acc:
+                return "".join(acc)
+            return reply or ""
+        else:
+            return prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout)
+
+    # Fallback: provider senza sessioni KV -> usiamo system + user completi
     sys_instr = (
         f"You are a professional translator. Always translate the user's text into {tname}. "
         "Output ONLY the translated text, preserving formatting, code blocks, and lists. "
         "Do not add explanations or commentary. If the source language is provided, use it; otherwise detect the source language automatically."
     )
-
-    # If provider supports native chat, use it with system + user messages to get best fidelity and streaming
     messages = [{"role": "system", "content": sys_instr}]
     if sname:
         messages.append({"role": "system", "content": f"Source language hint: {sname}."})
@@ -304,8 +330,9 @@ def send_chat_message(
     # Append user message
     append_message(chat_id, "user", message)
 
-    # Build messages list for provider
-    messages = get_chat_history(chat_id)
+    # Build messages list for provider (excluding thought/observation intermediate agent roles)
+    raw_messages = get_chat_history(chat_id)
+    messages = [m for m in raw_messages if m.get("role") in ["user", "assistant", "system"]]
 
     def _trim_history_for_provider(msgs, max_tokens_allowed: int = 256, max_turns: int = 40):
         """Trim history to fit resource constraints while preserving system messages and recent turns.
@@ -372,4 +399,211 @@ def send_chat_message(
     # Append assistant reply to history
     append_message(chat_id, "assistant", reply)
     return chat_id, reply
+
+
+def execute_agent_tool(tool_name: str, tool_args: dict) -> str:
+    """Execute a tool specified by tool_name with arguments in tool_args, handling stream context."""
+    try:
+        # Initialize stream context if not provided
+        if 'stream_context' not in tool_args:
+            tool_args['stream_context'] = {
+                'session_id': str(uuid.uuid4()),
+                'type': 'tool_stream',
+                'tool_name': tool_name,
+                'provided_by': 'agent'
+            }
+        
+        # Handle specific tools
+        if tool_name == 'web_search':
+            return agent_tools.web_search(tool_args.get('query', ''))
+        elif tool_name == 'read_file':
+            return agent_tools.read_file(tool_args.get('filepath', ''))
+        elif tool_name == 'execute_command':
+            # Preserve full command context
+            return agent_tools.execute_command(tool_args.get('command', ''))
+        elif tool_name == 'write_file':
+            return agent_tools.write_file(tool_args.get('filepath', ''), tool_args.get('content', ''))
+        elif tool_name == 'modify_file':
+            return agent_tools.modify_file(
+                tool_args.get('filepath', ''),
+                tool_args.get('search_text', ''),
+                tool_args.get('replace_text', '')
+            )
+        else:
+            # Fallback for unknown tools with context tracking
+            return f"Error: Tool '{tool_name}' not implemented. Context: {tool_args.get('stream_context', {})}"
+    except Exception as e:
+        return f"Execution error: {str(e)} (Context: {tool_args.get('stream_context', {})})"
+
+
+def detect_tool_from_response(resp: str, history: list) -> Optional[tuple]:
+    """Filtro semantico sulla risposta in linguaggio libero dell'LLM.
+
+    Se la risposta segnala (IT/EN) che servirebbe uno strumento, restituisce
+    (tool_name, tool_args) da forzare. Altrimenti None.
+    Non viene chiamato se un tool è già stato usato nel turno (gestito dal caller).
+    """
+    # --- web_search: delega a fonte esterna / "non lo so" / argomenti real-time ---
+    web_signals = re.search(
+        # IT: delega/rimando a fonte esterna
+        r"dovresti (?:cercare|consultare|verificare)|prova (?:a )?(?:cercare|consultare)|"
+        r"(?:puoi|devi|dovresti) (?:andare|visitare|collegarti)|"
+        r"(?:risolta|trov[aai]|scopri|otteni|cerca)[^.]*(?:sito|pagina|portale|web|internet|online|motore di ricerca)|"
+        r"(?:tramite|su|mediante|attraverso) (?:un |il )?(?:sito|pagina|portale|sito web|website)[^.]{0,30}(?:web|previsioni?|meteo|notizie|tempo)|"
+        r"sito (?:web|internet)|pagina web|motore di ricerca|"
+        # IT: ammissione di non conoscenza / impossibilità
+        r"non (?:conosco|so|ho|dispongo|posso|riesco) (?:la |i |il )?(?:meteo|prevision|notizie?|prezz|orari|risposta|dati?)|"
+        r"non (?:posso|riesco|sono in grado di) (?:sapere|dirti|fornirti|trovare)|"
+        # EN: delegate / defer to external source
+        r"you (?:should|can|could|need to) (?:search|look[\s-]?up|check|consult|visit|use)|"
+        r"(?:look|check|search|find)[^.]*(?:website|web page|online|search engine|the web|internet)|"
+        r"(?:via|on|through|using) (?:a |the )?(?:website|web page|web portal|search engine|internet|online)|"
+        r"search engine|web ?site|web page|"
+        # EN: admission of not knowing
+        r"i (?:don'?t|do not) (?:know|have|have access)|i (?:can'?t|cannot) (?:tell|provide|find|know)|"
+        r"you (?:should|need to) (?:check|visit|search)|"
+        # generic real-time topics that imply an external source is needed
+        r"previsioni? (?:del )?meteo|meteo (?:di|per|oggi|domani)|weather (?:forecast|for|today|tomorrow)|"
+        r"notizie (?:di|del|oggi)|news (?:today|about|of)|prezzi(?: correnti| attuali| di oggi)|current prices?",
+        resp,
+        re.IGNORECASE,
+    )
+    if web_signals:
+        user_msgs = [m.get("content", "") for m in history if m.get("role") == "user"]
+        query = user_msgs[-1] if user_msgs else resp
+        return ("web_search", {"query": query})
+
+    # --- read_file: cita un percorso di file o propone di leggerlo ---
+    read_signals = re.search(
+        r"legg(?:o|i|ere)|apr(?:o|i) (?:il )?file|mostr(?:o|a) (?:il )?contenuto|"
+        r"read (?:the )?file|show (?:me )?the (?:file|content)|open (?:the )?file",
+        resp,
+        re.IGNORECASE,
+    )
+    if read_signals:
+        path_match = re.search(r"(?:/[\w.\-/]+|(?:[A-Za-z]:)?\.[\\\/\w.\-]+)", resp)
+        if path_match:
+            return ("read_file", {"filepath": path_match.group(0)})
+
+    # --- execute_command: propone/esegue un comando di shell ---
+    cmd_signals = re.search(
+        r"eseguo|esegui(?:amo)?|lancio|avvio|run (?:the |this )?command|"
+        r"i (?:can |will )?run|execute (?:the )?command|comando[:\s]",
+        resp,
+        re.IGNORECASE,
+    )
+    if cmd_signals:
+        # Comando tra backtick, oppure dopo "esegui/run/comando:"
+        backtick = re.search(r"`([^`]+)`", resp)
+        if backtick:
+            return ("execute_command", {"command": backtick.group(1).strip()})
+        after = re.search(r"(?:esegui|run|comando|command)[:\s]+([^\n]+)", resp, re.IGNORECASE)
+        if after:
+            return ("execute_command", {"command": after.group(1).strip()})
+
+    return None
+
+
+def run_agent_loop(
+    chat_id: str,
+    message: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    timeout: Optional[int] = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+) -> str:
+    """Agente lightweight: una risposta in chat, eventuale esecuzione di uno
+    strumento (rilevata semanticamente dalla risposta), e risposta hardcoded
+    di conferma + estratto. L'osservazione resta nel contesto per le domande
+    successive.
+    """
+    import json
+    cfg = config.load()
+    prov_name = provider or cfg.get("provider") or "ollama"
+    resolved_model = model or None
+
+    # Se c'è un nuovo messaggio dell'utente, lo salviamo
+    if message:
+        append_message(chat_id, "user", message)
+
+    executor = agent.AgentExecutor(prov_name, resolved_model)
+
+    if stream_callback:
+        stream_callback(json.dumps({"status": "thinking"}))
+
+    history = get_chat_history(chat_id)
+    step_res = executor.step(history)
+
+    if step_res["status"] == "error":
+        err_msg = step_res["error"]
+        if stream_callback:
+            stream_callback(json.dumps({"error": err_msg}))
+        append_message(chat_id, "assistant", f"Errore: {err_msg}")
+        return err_msg
+
+    resp = step_res["response"]
+
+    # Tool già usato in questo turno? Allora niente doppio trigger.
+    has_used_tool = any(
+        m.get("role") == "observation" or "Observation:" in m.get("content", "")
+        for m in get_chat_history(chat_id)
+    )
+
+    forced = None
+    if not has_used_tool:
+        forced = detect_tool_from_response(resp, get_chat_history(chat_id))
+
+    if forced:
+        tool_name, tool_args = forced
+
+        # Tool sensibile: richiede approvazione prima di eseguire
+        if tool_name in ["execute_command", "write_file", "modify_file"]:
+            if stream_callback:
+                stream_callback(json.dumps({
+                    "requires_approval": True,
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                    "thought": f"Risposta che implica l'uso di {tool_name}.",
+                }))
+            action_desc = f"Chiedo di eseguire lo strumento '{tool_name}' con parametri: {json.dumps(tool_args)}"
+            append_message(chat_id, "assistant", action_desc)
+            return f"In attesa di approvazione per il tool: {tool_name}"
+
+        if stream_callback:
+            stream_callback(json.dumps({
+                "thought": f"Risposta che implica l'uso di {tool_name}: lo eseguo.",
+                "executing_tool": tool_name,
+                "args": tool_args,
+            }))
+
+        observation = execute_agent_tool(tool_name, tool_args)
+        # L'osservazione entra nel contesto per le domande successive
+        append_message(chat_id, "observation", f"Observation: {observation}")
+
+        # Risposta hardcoded: conferma + breve estratto dei risultati
+        if tool_name == "web_search":
+            extract = _first_lines(observation, 6)
+            reply = f"Ho cercato sul web per «{tool_args.get('query', '')}». Risultati:\n\n{extract}"
+        elif tool_name == "read_file":
+            extract = _first_lines(observation, 20)
+            reply = f"Ho letto il file «{tool_args.get('filepath', '')}». Contenuto:\n\n{extract}"
+        else:
+            reply = f"Ho eseguito «{tool_args.get('command', '')}».\n{_first_lines(observation, 10)}"
+
+        if stream_callback:
+            stream_callback(json.dumps({"reply": reply}))
+        append_message(chat_id, "assistant", reply)
+        return reply
+
+    # Nessun tool: risposta diretta del modello
+    if stream_callback:
+        stream_callback(json.dumps({"reply": resp}))
+    append_message(chat_id, "assistant", resp)
+    return resp
+
+
+def _first_lines(text: str, n: int) -> str:
+    """Tronca il testo alle prime n righe non vuote per l'estratto hardcoded."""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    return "\n".join(lines[:n])
 

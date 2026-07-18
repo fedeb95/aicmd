@@ -32,6 +32,10 @@
                     <span class="menu-icon">🌐</span>
                     <span class="menu-text">Traduzione</span>
                 </button>
+                <button class="menu-item" data-tab="chat-section">
+                    <span class="menu-icon">💬</span>
+                    <span class="menu-text">Chat</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer-nav">
@@ -177,6 +181,37 @@
                                 <h3>Testo Tradotto:</h3>
                                 <div id="translate-result" class="result-box"></div>
                                 <button class="btn btn-secondary btn-copy" onclick="copyText('translate-result')">Copia negli appunti</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Pannello Chat -->
+                <section class="feature-panel hidden" id="chat-section">
+                    <div class="panel-card glass-card chat-card">
+                        <div class="card-body chat-body">
+                            <div class="chat-header-actions" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; width: 100%;">
+                                <div class="agent-toggle-container" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="chk-use-agent" style="width: 20px; height: 20px; margin: 0; cursor: pointer;">
+                                    <label for="chk-use-agent" style="font-size: 0.9rem; font-weight: 600; cursor: pointer; color: var(--text-primary); user-select: none;">Modalità Agente AI 🤖 <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">(Ricerca, Comandi, File)</span></label>
+                                </div>
+                                <button id="btn-new-chat" class="btn btn-secondary btn-sm" style="width: auto;">
+                                    <span>🗑️ Nuova Chat</span>
+                                </button>
+                            </div>
+                            
+                            <div id="chat-history-container" class="chat-history">
+                                <div class="chat-welcome-message">
+                                    <p>Avvia una conversazione! Scrivi un messaggio qui sotto per chattare con l'AI in streaming.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="chat-input-area">
+                                <textarea id="chat-input" placeholder="Scrivi un messaggio... premi Invio per inviare o Shift+Invio per andare a capo" rows="2"></textarea>
+                                <button id="btn-send-chat" class="btn btn-primary">
+                                    <span class="btn-text">Invia</span>
+                                    <div class="loader hidden"></div>
+                                </button>
                             </div>
                         </div>
                     </div>

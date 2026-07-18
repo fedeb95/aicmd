@@ -3,6 +3,7 @@
 // ============================================================
 let selectedFile = null;
 let llamaStatusInterval = null;
+let activeChatId = null;
 
 // ============================================================
 // DOM Elements
@@ -20,6 +21,13 @@ const llamaDot          = document.getElementById('llama-dot');
 const llamaStatusText   = document.getElementById('llama-status-text');
 const btnLlamaStart     = document.getElementById('btn-llama-start');
 const btnLlamaStop      = document.getElementById('btn-llama-stop');
+
+// Chat DOM Elements
+const chatHistoryContainer = document.getElementById('chat-history-container');
+const chatInput            = document.getElementById('chat-input');
+const btnSendChat          = document.getElementById('btn-send-chat');
+const btnNewChat           = document.getElementById('btn-new-chat');
+const chkUseAgent          = document.getElementById('chk-use-agent');
 
 // Toast
 const toast        = document.getElementById('toast');
@@ -46,6 +54,10 @@ const panelMeta = {
     'translate-section': {
         title: 'Traduzione',
         subtitle: 'Traduci il tuo testo in una lingua diversa.'
+    },
+    'chat-section': {
+        title: 'Chat in Streaming',
+        subtitle: 'Conversa con il modello linguistico locale con aggiornamenti in tempo reale.'
     },
     'settings-section': {
         title: 'Impostazioni',
@@ -108,6 +120,9 @@ function activatePanel(targetId) {
     // llama-server status polling
     if (targetId === 'settings-section') {
         pollLlamaStatus();
+    } else if (targetId === 'chat-section') {
+        chatInput.focus();
+        initChatSession().catch(() => {}); // pre-initialize chat ID in background
     }
 }
 
@@ -387,25 +402,82 @@ function getConfig() {
 }
 
 // ============================================================
+// Streaming Helper
+// ============================================================
+async function handleStreamingRequest(url, payload, resultElement, resultContainer, successMessage) {
+    resultContainer.classList.add('hidden');
+    resultElement.textContent = '';
+    
+    // Explicitly request streaming
+    payload.stream = true;
+    
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+        const e = await response.json().catch(() => ({}));
+        throw new Error(e.detail || `Errore server HTTP ${response.status}`);
+    }
+    
+    resultContainer.classList.remove('hidden');
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep partial line in buffer
+            
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                if (trimmed.startsWith('data: ')) {
+                    const dataStr = trimmed.slice(6);
+                    try {
+                        const data = JSON.parse(dataStr);
+                        if (data.error) {
+                            throw new Error(data.error);
+                        }
+                        if (data.chunk) {
+                            resultElement.textContent += data.chunk;
+                        }
+                    } catch (jsonErr) {
+                        // ignore malformed chunks or parsing errors
+                    }
+                }
+            }
+        }
+        showToast(successMessage);
+    } catch (streamErr) {
+        throw streamErr;
+    }
+}
+
+// ============================================================
 // Summarize
 // ============================================================
 btnSummarize.addEventListener('click', async () => {
     const text = textInput.value.trim();
     if (!text) { showToast('Inserisci del testo da riassumere.', true); return; }
     setLoading(btnSummarize, true);
-    summarizeResultContainer.classList.add('hidden');
     const { apiUrl, provider, model } = getConfig();
     try {
-        const response = await fetch(`${apiUrl}/api/summarize`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, provider: provider || null, model: model || null })
-        });
-        if (!response.ok) { const e = await response.json(); throw new Error(e.detail || 'Errore server'); }
-        const data = await response.json();
-        summarizeResult.textContent = data.summary;
-        summarizeResultContainer.classList.remove('hidden');
-        showToast('Riassunto generato con successo!');
+        await handleStreamingRequest(
+            `${apiUrl}/api/summarize`,
+            { text, provider: provider || null, model: model || null },
+            summarizeResult,
+            summarizeResultContainer,
+            'Riassunto completato!'
+        );
     } catch (err) {
         showToast(err.message, true);
     } finally {
@@ -448,19 +520,15 @@ btnRewrite.addEventListener('click', async () => {
     if (!text)  { showToast('Inserisci del testo da riscrivere.', true); return; }
     if (!style) { showToast("Specifica lo stile o l'istruzione per la riscrittura.", true); return; }
     setLoading(btnRewrite, true);
-    rewriteResultContainer.classList.add('hidden');
     const { apiUrl, provider, model } = getConfig();
     try {
-        const response = await fetch(`${apiUrl}/api/rewrite`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, style, provider: provider || null, model: model || null })
-        });
-        if (!response.ok) { const e = await response.json(); throw new Error(e.detail || 'Errore server'); }
-        const data = await response.json();
-        rewriteResult.textContent = data.rewritten;
-        rewriteResultContainer.classList.remove('hidden');
-        showToast('Testo riscritto con successo!');
+        await handleStreamingRequest(
+            `${apiUrl}/api/rewrite`,
+            { text, style, provider: provider || null, model: model || null },
+            rewriteResult,
+            rewriteResultContainer,
+            'Testo riscritto con successo!'
+        );
     } catch (err) {
         showToast(err.message, true);
     } finally {
@@ -477,25 +545,389 @@ btnTranslate.addEventListener('click', async () => {
     if (!text)   { showToast('Inserisci del testo da tradurre.', true); return; }
     if (!target) { showToast('Specifica la lingua di destinazione.', true); return; }
     setLoading(btnTranslate, true);
-    translateResultContainer.classList.add('hidden');
     const { apiUrl, provider, model } = getConfig();
     const source = translateFromInput.value.trim();
     try {
-        const response = await fetch(`${apiUrl}/api/translate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, target, source: source || null, provider: provider || null, model: model || null })
-        });
-        if (!response.ok) { const e = await response.json(); throw new Error(e.detail || 'Errore traduzione'); }
-        const data = await response.json();
-        translateResult.textContent = data.translated;
-        translateResultContainer.classList.remove('hidden');
-        showToast('Traduzione completata!');
+        await handleStreamingRequest(
+            `${apiUrl}/api/translate`,
+            { text, target, source: source || null, provider: provider || null, model: model || null },
+            translateResult,
+            translateResultContainer,
+            'Traduzione completata!'
+        );
     } catch (err) {
         showToast(err.message, true);
     } finally {
         setLoading(btnTranslate, false);
     }
+});
+
+// ============================================================
+// Chat
+// ============================================================
+function appendChatMessage(role, content = '') {
+    // Rimuovi il messaggio di benvenuto se presente
+    const welcome = chatHistoryContainer.querySelector('.chat-welcome-message');
+    if (welcome) welcome.remove();
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+
+    const senderDiv = document.createElement('div');
+    senderDiv.className = 'message-sender';
+    
+    let senderName = 'AI';
+    if (role === 'user') senderName = 'Tu';
+    else if (role === 'thought') senderName = 'Pensiero Agente';
+    else if (role === 'tool') senderName = 'Strumento';
+    else senderName = getConfig().provider || 'AI';
+    
+    senderDiv.textContent = senderName;
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    
+    if (content === '' && (role === 'assistant' || role === 'thought' || role === 'tool')) {
+        contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+        contentDiv.classList.add('is-loading');
+    } else {
+        contentDiv.textContent = content;
+    }
+
+    msgDiv.appendChild(senderDiv);
+    msgDiv.appendChild(contentDiv);
+    chatHistoryContainer.appendChild(msgDiv);
+    
+    // Auto-scroll
+    chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+
+    return contentDiv; // restituiamo il div del contenuto per poterlo aggiornare
+}
+
+function writeStreamChunk(el, chunk) {
+    if (el.classList.contains('is-loading')) {
+        el.innerHTML = '';
+        el.classList.remove('is-loading');
+    }
+    el.textContent += chunk;
+}
+
+async function initChatSession() {
+    if (activeChatId) return activeChatId;
+    const { apiUrl } = getConfig();
+    try {
+        const response = await fetch(`${apiUrl}/api/chat/new`, { method: 'POST' });
+        if (!response.ok) throw new Error('Impossibile avviare una nuova chat.');
+        const data = await response.json();
+        activeChatId = data.chat_id;
+        return activeChatId;
+    } catch (err) {
+        showToast(err.message, true);
+        throw err;
+    }
+}
+
+async function handleAgentStream(response, assistantContentEl) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    
+    let currentThoughtEl = null;
+    let currentToolEl = null;
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            if (trimmed.startsWith('data: ')) {
+                const dataStr = trimmed.slice(6);
+                try {
+                    const data = JSON.parse(dataStr);
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+
+                    // Il backend avvolge l'evento in {"chunk": "<json>"}.
+                    // Estraiamo l'evento reale dell'agente e lo parsiamo.
+                    let event = data;
+                    if (typeof data.chunk === 'string') {
+                        try {
+                            event = JSON.parse(data.chunk);
+                        } catch (e) {
+                            event = data;
+                        }
+                    }
+
+                    // Gestione dei vari eventi inviati dall'Agente
+                    if (event.step) {
+                        // Apri (o aggiorna) la sezione ragionamento nella bolla assistente
+                        let trace = assistantContentEl.parentElement.querySelector('.agent-trace');
+                        if (!trace) {
+                            trace = document.createElement('div');
+                            trace.className = 'agent-trace';
+                            const header = document.createElement('div');
+                            header.className = 'agent-trace-header';
+                            header.textContent = '🧠 Ragionamento dell\'agente';
+                            trace.appendChild(header);
+                            const list = document.createElement('div');
+                            list.className = 'agent-trace-list';
+                            trace.appendChild(list);
+                            assistantContentEl.parentElement.insertBefore(trace, assistantContentEl);
+                        }
+                        const item = document.createElement('div');
+                        item.className = 'agent-trace-step';
+                        item.textContent = `Passo ${event.step}: ${event.status === 'thinking' ? 'in pensiero…' : event.status}`;
+                        trace.querySelector('.agent-trace-list').appendChild(item);
+                    }
+
+                    if (event.approval_result) {
+                        const label = event.approval_result === 'approved'
+                            ? `✅ Azione consentita: ${event.tool_name}`
+                            : `❌ Azione negata: ${event.tool_name}`;
+                        const obs = event.observation
+                            ? `\n${event.observation}`
+                            : '';
+                        appendChatMessage('tool', `${label}${obs}`);
+                    }
+
+                    if (event.thought) {
+                        if (!currentThoughtEl) {
+                            currentThoughtEl = appendChatMessage('thought', '');
+                        }
+                        writeStreamChunk(currentThoughtEl, event.thought);
+                    }
+
+                    if (event.executing_tool) {
+                        currentToolEl = appendChatMessage('tool', `Esecuzione di ${event.executing_tool}...`);
+                    }
+
+                    if (event.reply) {
+                        // Reset degli elementi di lavoro correnti
+                        currentThoughtEl = null;
+                        currentToolEl = null;
+                        writeStreamChunk(assistantContentEl, event.reply);
+                    }
+
+                    if (event.requires_approval) {
+                        currentThoughtEl = null;
+                        currentToolEl = null;
+                        // Rimuoviamo l'indicatore di caricamento dalla risposta dell'assistente vuota se presente
+                        if (assistantContentEl && assistantContentEl.classList.contains('is-loading')) {
+                            assistantContentEl.parentElement.remove(); // Rimuove interamente la bolla vuota dell'assistente
+                        }
+                        renderApprovalBox(event.tool_name, event.tool_args);
+                    }
+                    
+                    chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+                } catch (jsonErr) {
+                    // ignore malformed lines
+                }
+            }
+        }
+    }
+}
+
+function renderApprovalBox(toolName, toolArgs) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'message assistant';
+    
+    const senderDiv = document.createElement('div');
+    senderDiv.className = 'message-sender';
+    senderDiv.textContent = 'Richiesta di Approvazione';
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    
+    const approvalBox = document.createElement('div');
+    approvalBox.className = 'approval-box';
+    
+    const title = document.createElement('div');
+    title.className = 'approval-title';
+    title.textContent = `⚠️ L'Agente richiede di utilizzare lo strumento: ${toolName}`;
+    
+    const commandDesc = document.createElement('div');
+    commandDesc.className = 'approval-command';
+    commandDesc.textContent = JSON.stringify(toolArgs, null, 2);
+    
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.className = 'approval-buttons';
+    
+    const btnApprove = document.createElement('button');
+    btnApprove.className = 'btn btn-approve';
+    btnApprove.textContent = '✔️ Consenti';
+    
+    const btnDeny = document.createElement('button');
+    btnDeny.className = 'btn btn-deny';
+    btnDeny.textContent = '❌ Nega';
+    
+    buttonsContainer.appendChild(btnApprove);
+    buttonsContainer.appendChild(btnDeny);
+    
+    approvalBox.appendChild(title);
+    approvalBox.appendChild(commandDesc);
+    approvalBox.appendChild(buttonsContainer);
+    
+    contentDiv.appendChild(approvalBox);
+    msgDiv.appendChild(senderDiv);
+    msgDiv.appendChild(contentDiv);
+    chatHistoryContainer.appendChild(msgDiv);
+    chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+    
+    // Rimuoviamo loading del pulsante invia principale per far interagire l'utente
+    setLoading(btnSendChat, false);
+    
+    // Click Handlers
+    btnApprove.addEventListener('click', () => {
+        approvalBox.innerHTML = '<div style="color: #48bb78; font-weight: 700;">Azione consentita. Esecuzione in corso...</div>';
+        submitApprovalResponse(true, toolName, toolArgs);
+    });
+    
+    btnDeny.addEventListener('click', () => {
+        approvalBox.innerHTML = '<div style="color: #e53e3e; font-weight: 700;">Azione negata. Riformulazione del piano...</div>';
+        submitApprovalResponse(false, toolName, toolArgs);
+    });
+}
+
+async function submitApprovalResponse(approved, toolName, toolArgs) {
+    setLoading(btnSendChat, true);
+    try {
+        const { apiUrl, provider, model } = getConfig();
+        const response = await fetch(`${apiUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: activeChatId,
+                use_agent: true,
+                tool_approved: approved,
+                tool_name: toolName,
+                tool_args: toolArgs,
+                provider: provider || null,
+                model: model || null,
+                stream: true
+            })
+        });
+        
+        if (!response.ok) {
+            const e = await response.json().catch(() => ({}));
+            throw new Error(e.detail || `Errore HTTP ${response.status}`);
+        }
+        
+        const assistantContentEl = appendChatMessage('assistant', '');
+        await handleAgentStream(response, assistantContentEl);
+    } catch (err) {
+        showToast(err.message, true);
+    } finally {
+        setLoading(btnSendChat, false);
+    }
+}
+
+async function sendChatMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    chatInput.value = '';
+    setLoading(btnSendChat, true);
+
+    try {
+        // Assicurati che esista una sessione di chat
+        const chatId = await initChatSession();
+
+        // Aggiungi messaggio utente alla UI
+        appendChatMessage('user', message);
+
+        const useAgent = chkUseAgent.checked;
+        const { apiUrl, provider, model } = getConfig();
+
+        // Chiamata in streaming
+        const response = await fetch(`${apiUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                message: message,
+                provider: provider || null,
+                model: model || null,
+                use_agent: useAgent,
+                stream: true
+            })
+        });
+
+        if (!response.ok) {
+            const e = await response.json().catch(() => ({}));
+            throw new Error(e.detail || `Errore HTTP ${response.status}`);
+        }
+
+        const assistantContentEl = appendChatMessage('assistant', '');
+        
+        if (useAgent) {
+            await handleAgentStream(response, assistantContentEl);
+        } else {
+            // Flusso chat pura standard
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    const trimmed = line.strip ? line.strip() : line.trim();
+                    if (!trimmed) continue;
+                    if (trimmed.startsWith('data: ')) {
+                        const dataStr = trimmed.slice(6);
+                        try {
+                            const data = JSON.parse(dataStr);
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                            if (data.chunk) {
+                                writeStreamChunk(assistantContentEl, data.chunk);
+                                chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight;
+                            }
+                        } catch (jsonErr) {
+                            // ignore malformed lines
+                        }
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        showToast(err.message, true);
+    } finally {
+        setLoading(btnSendChat, false);
+        chatInput.focus();
+    }
+}
+
+btnSendChat.addEventListener('click', sendChatMessage);
+
+chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+    }
+});
+
+btnNewChat.addEventListener('click', () => {
+    activeChatId = null;
+    chatHistoryContainer.innerHTML = `
+        <div class="chat-welcome-message">
+            <p>Avvia una conversazione! Scrivi un messaggio qui sotto per chattare con l'AI in streaming.</p>
+        </div>
+    `;
+    showToast('Nuova chat avviata!');
 });
 
 // ============================================================

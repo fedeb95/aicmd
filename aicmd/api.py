@@ -1,6 +1,8 @@
 import os
 import shutil
 import tempfile
+import json
+import queue
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -13,11 +15,6 @@ from . import services
 
 import os
 import sys
-
-# Queste vengono iniettate da main.py quando si gira come app desktop
-start_llama_fn = None
-stop_llama_fn = None
-get_llama_process_fn = None
 
 def resource_path(relative_path):
     if getattr(sys, "frozen", False):
@@ -50,24 +47,87 @@ app.add_middleware(
 )
 
 
+import asyncio
+import queue
+import threading
+from fastapi.responses import StreamingResponse
+
+# Helper to run synchronous service functions in a background thread
+# and yield their chunks in real-time to StreamingResponse.
+def run_in_thread_with_stream(func, *args, **kwargs):
+    """
+    Runs a synchronous function in a background thread, collecting its
+    streamed output via a thread-safe queue.Queue, and yields chunks
+    via an async generator using non-blocking polling.
+    """
+    q = queue.Queue()
+
+    def cb(chunk: str):
+        # Thread-safe put into the synchronous queue
+        q.put(chunk)
+
+    def worker():
+        try:
+            func(*args, stream_callback=cb, **kwargs)
+        except Exception as e:
+            q.put(e)
+        finally:
+            q.put(None)  # Sentinel to signal completion
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+
+    async def generator():
+        while True:
+            try:
+                # Non-blocking check: if queue is empty, yield control briefly
+                if q.empty():
+                    await asyncio.sleep(0.01)
+                    continue
+                item = q.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.01)
+                continue
+
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                yield f"data: {json.dumps({'error': str(item)})}\n\n"
+                break
+            yield f"data: {json.dumps({'chunk': item})}\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
 class SummarizeRequest(BaseModel):
     text: str
     provider: Optional[str] = None
     model: Optional[str] = None
     max_tokens: Optional[int] = 256
     timeout: Optional[int] = None
+    stream: Optional[bool] = False
 
 @app.post("/api/summarize")
-def summarize(request: SummarizeRequest):
+async def summarize(request: SummarizeRequest):
     try:
-        summary = services.summarize_text(
-            text=request.text,
-            provider=request.provider,
-            model=request.model,
-            max_tokens=request.max_tokens or 256,
-            timeout=request.timeout,
-        )
-        return {"summary": summary}
+        if request.stream:
+            return run_in_thread_with_stream(
+                services.summarize_text,
+                text=request.text,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 256,
+                timeout=request.timeout,
+            )
+        else:
+            summary = services.summarize_text(
+                text=request.text,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 256,
+                timeout=request.timeout,
+            )
+            return {"summary": summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -78,19 +138,31 @@ class RewriteRequest(BaseModel):
     model: Optional[str] = None
     max_tokens: Optional[int] = 256
     timeout: Optional[int] = None
+    stream: Optional[bool] = False
 
 @app.post("/api/rewrite")
-def rewrite(request: RewriteRequest):
+async def rewrite(request: RewriteRequest):
     try:
-        rewritten = services.rewrite_text(
-            text=request.text,
-            style=request.style,
-            provider=request.provider,
-            model=request.model,
-            max_tokens=request.max_tokens or 256,
-            timeout=request.timeout,
-        )
-        return {"rewritten": rewritten}
+        if request.stream:
+            return run_in_thread_with_stream(
+                services.rewrite_text,
+                text=request.text,
+                style=request.style,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 256,
+                timeout=request.timeout,
+            )
+        else:
+            rewritten = services.rewrite_text(
+                text=request.text,
+                style=request.style,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 256,
+                timeout=request.timeout,
+            )
+            return {"rewritten": rewritten}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -102,20 +174,33 @@ class TranslateRequest(BaseModel):
     model: Optional[str] = None
     max_tokens: Optional[int] = 256
     timeout: Optional[int] = None
+    stream: Optional[bool] = False
 
 @app.post("/api/translate")
-def translate(request: TranslateRequest):
+async def translate(request: TranslateRequest):
     try:
-        translated = services.translate_text(
-            text=request.text,
-            target_lang=request.target,
-            source_lang=request.source,
-            provider=request.provider,
-            model=request.model,
-            max_tokens=request.max_tokens or 256,
-            timeout=request.timeout,
-        )
-        return {"translated": translated}
+        if request.stream:
+            return run_in_thread_with_stream(
+                services.translate_text,
+                text=request.text,
+                target_lang=request.target,
+                source_lang=request.source,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 256,
+                timeout=request.timeout,
+            )
+        else:
+            translated = services.translate_text(
+                text=request.text,
+                target_lang=request.target,
+                source_lang=request.source,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 256,
+                timeout=request.timeout,
+            )
+            return {"translated": translated}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -150,6 +235,148 @@ async def describe(
             temp_file_path.unlink()
         if os.path.exists(temp_dir):
             os.rmdir(temp_dir)
+
+@app.post("/api/chat/new")
+def create_new_chat():
+    try:
+        chat_id = services.create_chat()
+        return {"chat_id": chat_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chat/{chat_id}/history")
+def get_chat_history(chat_id: str):
+    try:
+        messages = services.get_chat_history(chat_id)
+        return {"messages": messages}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ChatRequest(BaseModel):
+    chat_id: str
+    message: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    max_tokens: Optional[int] = 512
+    timeout: Optional[int] = None
+    stream: Optional[bool] = False
+    
+    # Parametri per l'Agente AI
+    use_agent: Optional[bool] = False
+    tool_approved: Optional[bool] = None
+    tool_name: Optional[str] = None
+    tool_args: Optional[dict] = None
+
+@app.post("/api/chat")
+async def send_chat_message(request: ChatRequest):
+    try:
+        if request.use_agent:
+            # Se stiamo gestendo la risposta a una richiesta di approvazione di un tool
+            if request.tool_approved is not None:
+                def run_agent_post_approval(chat_id, tool_approved, tool_name, tool_args, provider, model, stream_callback):
+                    # 1. Esegui il tool o registra il rifiuto
+                    if tool_approved:
+                        observation = services.execute_agent_tool(tool_name, tool_args)
+                        if stream_callback:
+                            stream_callback(json.dumps({
+                                "approval_result": "approved",
+                                "tool_name": tool_name,
+                                "observation": observation
+                            }))
+                    else:
+                        observation = "L'azione è stata negata dall'utente."
+                        if stream_callback:
+                            stream_callback(json.dumps({
+                                "approval_result": "denied",
+                                "tool_name": tool_name
+                            }))
+
+                    # 2. Salva nel database l'osservazione
+                    action_desc = f"Action: {tool_name}({json.dumps(tool_args)})"
+                    services.append_message(chat_id, "thought", action_desc)
+                    services.append_message(chat_id, "observation", f"Observation: {observation}")
+
+                    # 3. Fai continuare il ciclo ReAct (emette i suoi eventi "step")
+                    return services.run_agent_loop(
+                        chat_id=chat_id,
+                        message=None,
+                        provider=provider,
+                        model=model,
+                        stream_callback=stream_callback
+                    )
+                
+                if request.stream:
+                    return run_in_thread_with_stream(
+                        run_agent_post_approval,
+                        chat_id=request.chat_id,
+                        tool_approved=request.tool_approved,
+                        tool_name=request.tool_name,
+                        tool_args=request.tool_args,
+                        provider=request.provider,
+                        model=request.model
+                    )
+                else:
+                    # Chiamata sincrona (non in streaming)
+                    # Non usiamo stream_callback
+                    if request.tool_approved:
+                        observation = services.execute_agent_tool(request.tool_name, request.tool_args)
+                    else:
+                        observation = "L'azione è stata negata dall'utente."
+                    action_desc = f"Action: {request.tool_name}({json.dumps(request.tool_args)})"
+                    services.append_message(request.chat_id, "thought", action_desc)
+                    services.append_message(request.chat_id, "observation", f"Observation: {observation}")
+                    
+                    reply = services.run_agent_loop(
+                        chat_id=request.chat_id,
+                        message=None,
+                        provider=request.provider,
+                        model=request.model
+                    )
+                    return {"chat_id": request.chat_id, "reply": reply}
+            
+            # Altrimenti è un messaggio standard inviato all'Agente
+            else:
+                if request.stream:
+                    return run_in_thread_with_stream(
+                        services.run_agent_loop,
+                        chat_id=request.chat_id,
+                        message=request.message,
+                        provider=request.provider,
+                        model=request.model
+                    )
+                else:
+                    reply = services.run_agent_loop(
+                        chat_id=request.chat_id,
+                        message=request.message,
+                        provider=request.provider,
+                        model=request.model
+                    )
+                    return {"chat_id": request.chat_id, "reply": reply}
+        
+        # Flusso di chat pura esistente (senza agente)
+        else:
+            if request.stream:
+                return run_in_thread_with_stream(
+                    services.send_chat_message,
+                    chat_id=request.chat_id,
+                    message=request.message,
+                    provider=request.provider,
+                    model=request.model,
+                    max_tokens=request.max_tokens or 512,
+                    timeout=request.timeout,
+                )
+            else:
+                chat_id, reply = services.send_chat_message(
+                    chat_id=request.chat_id,
+                    message=request.message,
+                    provider=request.provider,
+                    model=request.model,
+                    max_tokens=request.max_tokens or 512,
+                    timeout=request.timeout,
+                )
+                return {"chat_id": chat_id, "reply": reply}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/models")
 def list_models(provider: Optional[str] = None):
