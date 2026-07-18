@@ -10,8 +10,11 @@ from aicmd.paths import app_path
 llama_process = None
 
 def start_llama():
-
     global llama_process
+
+    # Se c'è già un processo in esecuzione, non avviarne un altro
+    if llama_process and llama_process.poll() is None:
+        return llama_process
 
     server = app_path(
         "runtime",
@@ -21,7 +24,7 @@ def start_llama():
 
     model = app_path(
         "models",
-        "SmolVLM-500M-Instruct-f16.gguf"
+        "qwen2.5-1.5b-instruct-q8_0.gguf"
     )
 
     multimodal = app_path(
@@ -34,8 +37,18 @@ def start_llama():
             server,
             "-m",
             model,
-            "--mmproj",
-            multimodal, 
+            #"--mmproj",
+            #multimodal,
+            "-t",
+            "4",
+            "--threads-batch",
+            "8",
+            "-b",
+            "1024",
+            "-ub",
+            "1024",
+            "-c",
+            "2048",
             "--host",
             "127.0.0.1",
             "--port",
@@ -45,6 +58,26 @@ def start_llama():
 
     return llama_process
 
+def stop_llama():
+    global llama_process
+
+    if llama_process and llama_process.poll() is None:
+        llama_process.terminate()
+        try:
+            llama_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            llama_process.kill()
+        llama_process = None
+
+def get_llama_process():
+    return llama_process
+
+# Esponi le funzioni di controllo all'API
+import aicmd.api as _api_module
+_api_module.start_llama_fn = start_llama
+_api_module.stop_llama_fn = stop_llama
+_api_module.get_llama_process_fn = get_llama_process
+
 def start_api():
     uvicorn.run(
         app,
@@ -53,18 +86,19 @@ def start_api():
     )
 
 def on_closing():
-    global llama_process
+    stop_llama()
 
-    if llama_process:
-        llama_process.terminate()
+# ── Avvio automatico llama-server ──────────────────────────────────────────
+# Se il provider configurato (o il default) è llamaserver, avviamo subito
+# il processo bundled in background prima di aprire la finestra.
+from aicmd import config as _cfg
+_cfg_data = _cfg.load()
+_provider = _cfg_data.get("provider", "").lower()
 
-        try:
-            llama_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            llama_process.kill()
+if _provider == "llamaserver":
+    threading.Thread(target=start_llama, daemon=True).start()
 
-
-llama_process = start_llama()
+# ───────────────────────────────────────────────────────────────────────────
 
 threading.Thread(
     target=start_api,
@@ -78,9 +112,8 @@ window = webview.create_window(
 
 window.events.closing += on_closing
 
-
 try:
     webview.start()
 
 finally:
-    llama_process.terminate()
+    stop_llama()
