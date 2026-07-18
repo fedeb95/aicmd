@@ -14,6 +14,11 @@ from . import services
 import os
 import sys
 
+# Queste vengono iniettate da main.py quando si gira come app desktop
+start_llama_fn = None
+stop_llama_fn = None
+get_llama_process_fn = None
+
 def resource_path(relative_path):
     if getattr(sys, "frozen", False):
         # PyInstaller
@@ -176,6 +181,18 @@ def list_models(provider: Optional[str] = None):
             models.sort()
             return {"provider": prov, "models": models}
 
+        elif prov == "llamaserver":
+            # llama-server espone un endpoint OpenAI-compatibile
+            base = cfg.get("llamaserver_url", "http://127.0.0.1:8081").rstrip("/")
+            try:
+                r = _httpx.get(f"{base}/v1/models", timeout=5)
+                r.raise_for_status()
+                models = [m.get("id") for m in r.json().get("data", []) if m.get("id")]
+            except Exception:
+                # llama-server potrebbe non esporre /v1/models, restituiamo lista vuota
+                models = []
+            return {"provider": prov, "models": models}
+
         else:
             raise HTTPException(status_code=400, detail=f"Unknown provider: {prov}")
 
@@ -183,6 +200,50 @@ def list_models(provider: Optional[str] = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Could not fetch models: {e}")
+
+
+# ---- Gestione ciclo di vita llama-server ----
+
+@app.post("/api/llama/start")
+def llama_start():
+    """Avvia il processo llama-server bundled."""
+    if start_llama_fn is None:
+        raise HTTPException(status_code=501, detail="Controllo llama-server non disponibile in modalità standalone")
+    try:
+        proc = start_llama_fn()
+        if proc is None:
+            raise HTTPException(status_code=500, detail="Impossibile avviare llama-server (binario non trovato?)")
+        return {"status": "started", "pid": proc.pid}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/llama/stop")
+def llama_stop():
+    """Ferma il processo llama-server bundled."""
+    if stop_llama_fn is None:
+        raise HTTPException(status_code=501, detail="Controllo llama-server non disponibile in modalità standalone")
+    try:
+        stop_llama_fn()
+        return {"status": "stopped"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/llama/status")
+def llama_status():
+    """Restituisce lo stato corrente del processo llama-server."""
+    if get_llama_process_fn is None:
+        return {"running": False, "pid": None, "managed": False}
+    proc = get_llama_process_fn()
+    running = proc is not None and proc.poll() is None
+    return {
+        "running": running,
+        "pid": proc.pid if running else None,
+        "managed": True,
+    }
 
 
 # Statici

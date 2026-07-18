@@ -100,6 +100,13 @@ body {
     box-shadow: 2px 0 10px rgba(69, 107, 82, 0.07);
 }
 
+/* Footer nav: contiene il bottone Impostazioni */
+.sidebar-footer-nav {
+    padding: 0 0.85rem 0.5rem;
+    border-top: 1px solid var(--border-light);
+    padding-top: 0.65rem;
+}
+
 .sidebar-header {
     display: flex;
     align-items: center;
@@ -209,16 +216,22 @@ body {
 .main-header {
     background: var(--bg-card);
     border-bottom: 1px solid var(--border-light);
-    padding: 1.5rem 2rem 1rem;
+    padding: 1.25rem 2rem;
     box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
 }
 
 .header-title {
-    margin-bottom: 1rem;
+    flex: 1;
+    min-width: 0;
 }
 
 .header-title h1 {
-    font-size: 1.75rem;
+    font-size: 1.6rem;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.025em;
@@ -226,21 +239,38 @@ body {
 
 .subtitle {
     color: var(--text-muted);
-    font-size: 0.95rem;
-    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    margin-top: 0.2rem;
 }
 
-/* --- Config bar in header --- */
-.config-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    padding: 1rem 1.25rem;
+/* --- Provider badge --- */
+.provider-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     background: var(--sage-100);
     border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    align-items: end;
+    border-radius: 999px;
+    padding: 0.35rem 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
+
+.provider-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+    transition: var(--transition);
+}
+
+.provider-dot.dot-local   { background: #456b52; box-shadow: 0 0 5px rgba(69,107,82,0.5); }
+.provider-dot.dot-cloud   { background: #2980b9; box-shadow: 0 0 5px rgba(41,128,185,0.5); }
+.provider-dot.dot-default { background: var(--text-muted); }
 
 .config-item {
     display: flex;
@@ -603,6 +633,123 @@ textarea:focus {
 .hidden { display: none !important; }
 
 /* ============================================================
+   Settings Panel
+   ============================================================ */
+.settings-card {
+    max-width: 680px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.settings-group-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: -0.01em;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.settings-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.settings-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+    line-height: 1.5;
+}
+
+/* llama-server status */
+.llama-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.llama-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.llama-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+    transition: var(--transition);
+}
+
+.llama-dot.dot-running  { background: #27ae60; box-shadow: 0 0 6px rgba(39,174,96,0.6); animation: pulse 1.8s ease-in-out infinite; }
+.llama-dot.dot-stopped  { background: var(--danger); }
+.llama-dot.dot-unmanaged { background: var(--text-muted); }
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.llama-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* Small buttons */
+.btn-sm {
+    width: auto;
+    padding: 0.45rem 1rem;
+    font-size: 0.85rem;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #27ae60 0%, #1e8449 100%);
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(39,174,96,0.25);
+}
+
+.btn-success:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 12px rgba(39,174,96,0.35);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(231,76,60,0.25);
+}
+
+.btn-danger:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 12px rgba(231,76,60,0.35);
+}
+
+.btn-success:disabled,
+.btn-danger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ============================================================
    Rewrite specific — style input full width
    ============================================================ */
 #rewrite-style-input {
@@ -631,7 +778,7 @@ textarea:focus {
     :root { --sidebar-w: 200px; }
     .panels-container { padding: 1rem; }
     .main-header { padding: 1rem; }
-    .config-bar { grid-template-columns: 1fr; }
+    .settings-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {
@@ -645,5 +792,6 @@ textarea:focus {
         flex-wrap: wrap;
     }
     .sidebar-menu { flex-direction: row; padding: 0.5rem; }
+    .sidebar-footer-nav { display: none; }
     .sidebar-footer { display: none; }
 }

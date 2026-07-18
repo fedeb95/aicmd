@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>aicmd Web Interface</title>
+    <title>aicmd</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -34,6 +34,13 @@
                 </button>
             </nav>
 
+            <div class="sidebar-footer-nav">
+                <button class="menu-item settings-btn" id="settings-btn" data-tab="settings-section">
+                    <span class="menu-icon">⚙️</span>
+                    <span class="menu-text">Impostazioni</span>
+                </button>
+            </div>
+
             <div class="sidebar-footer">
                 <a href="https://codeberg.org/federicobonfiglio/aicmd" target="_blank" rel="noopener">Sorgente</a>
             </div>
@@ -46,29 +53,12 @@
                     <h1 id="panel-title">Sintesi Testi</h1>
                     <p class="subtitle" id="panel-subtitle">Inserisci o incolla un testo per estrarre un riassunto conciso.</p>
                 </div>
-                
-                <!-- Pannello di Configurazione Integrato nell'Header -->
-                <section class="config-bar glass-card">
-                    <div class="config-item">
-                        <label for="api-url">API URL</label>
-                        <input type="text" id="api-url" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
-                    </div>
-                    <div class="config-item">
-                        <label for="provider-select">Provider</label>
-                        <select id="provider-select">
-                            <option value="">(Default Config)</option>
-                            <option value="ollama">Ollama (Locale)</option>
-                            <option value="llamaserver">llama-server (Locale)</option>
-                            <option value="openrouter">OpenRouter (Cloud)</option>
-                        </select>
-                    </div>
-                    <div class="config-item">
-                        <label for="model-select">Modello</label>
-                        <select id="model-select">
-                            <option value="">Caricamento...</option>
-                        </select>
-                    </div>
-                </section>
+
+                <!-- Indicatore provider attivo -->
+                <div class="provider-badge" id="provider-badge">
+                    <span class="provider-dot" id="provider-dot"></span>
+                    <span id="provider-label">—</span>
+                </div>
             </header>
 
             <!-- Contenitore dei Pannelli Funzionali -->
@@ -188,6 +178,64 @@
                                 <div id="translate-result" class="result-box"></div>
                                 <button class="btn btn-secondary btn-copy" onclick="copyText('translate-result')">Copia negli appunti</button>
                             </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Pannello 5: Impostazioni -->
+                <section class="feature-panel hidden" id="settings-section">
+                    <div class="panel-card glass-card settings-card">
+                        <div class="settings-group">
+                            <h3 class="settings-group-title">🔗 Connessione</h3>
+                            <div class="settings-row">
+                                <div class="config-item">
+                                    <label for="api-url">API URL</label>
+                                    <input type="text" id="api-url" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <h3 class="settings-group-title">🤖 Modello</h3>
+                            <div class="settings-row">
+                                <div class="config-item">
+                                    <label for="provider-select">Provider</label>
+                                    <select id="provider-select">
+                                        <option value="">(Default Config)</option>
+                                        <option value="ollama">Ollama (Locale)</option>
+                                        <option value="llamaserver">llama-server (Locale)</option>
+                                        <option value="openrouter">OpenRouter (Cloud)</option>
+                                    </select>
+                                </div>
+                                <div class="config-item">
+                                    <label for="model-select">Modello</label>
+                                    <select id="model-select">
+                                        <option value="">Caricamento...</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sezione llama-server (visibile solo quando provider = llamaserver) -->
+                        <div class="settings-group" id="llama-control-group" style="display:none;">
+                            <h3 class="settings-group-title">🦙 llama-server</h3>
+                            <div class="llama-status-row">
+                                <div class="llama-status-indicator">
+                                    <span class="llama-dot" id="llama-dot"></span>
+                                    <span id="llama-status-text">Verifica in corso...</span>
+                                </div>
+                                <div class="llama-actions">
+                                    <button id="btn-llama-start" class="btn btn-sm btn-success">
+                                        <span class="btn-text">▶ Avvia</span>
+                                        <div class="loader hidden"></div>
+                                    </button>
+                                    <button id="btn-llama-stop" class="btn btn-sm btn-danger">
+                                        <span class="btn-text">■ Ferma</span>
+                                        <div class="loader hidden"></div>
+                                    </button>
+                                </div>
+                            </div>
+                            <p class="settings-hint">Il server locale è necessario per usare llama-server come provider.</p>
                         </div>
                     </div>
                 </section>

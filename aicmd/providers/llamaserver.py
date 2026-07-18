@@ -15,8 +15,33 @@ class LlamaServerProvider(Provider):
         self.base_url = cfg.get("llamaserver_url", DEFAULT_LLAMASERVER_URL).rstrip('/')
         self.client = httpx.Client()
 
-    def _chat_completion_request(self, messages: list, model: str | None, max_tokens: int, temperature: float, timeout: int, stream_callback = None) -> str:
-        """Make a chat completion request to llama-server and handle streaming."""
+    def _chat_completion_request(self, messages: list, model: str | None, max_tokens: int, temperature: float, timeout: int, stream_callback=None) -> str:
+        """Make a chat completion request to llama-server and handle streaming.
+
+        Retry automaticamente in caso di ConnectError per gestire il tempo di
+        avvio/warmup del modello (fino a max_wait secondi).
+        """
+        import time
+
+        max_wait   = min(timeout, 60)   # aspetta al massimo 60s o il timeout impostato
+        wait       = 1.0
+        elapsed    = 0.0
+
+        while True:
+            try:
+                return self._attempt_request(messages, model, max_tokens, temperature, timeout, stream_callback)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                if elapsed >= max_wait:
+                    raise RuntimeError(
+                        f"llama-server non raggiungibile su {self.base_url} dopo {int(elapsed)}s — "
+                        "assicurati che sia avviato e che il modello sia caricato."
+                    )
+                time.sleep(wait)
+                elapsed += wait
+                wait = min(wait * 1.5, 8.0)
+
+    def _attempt_request(self, messages: list, model: str | None, max_tokens: int, temperature: float, timeout: int, stream_callback=None) -> str:
+        """Singola tentativo di chiamata HTTP a llama-server."""
         payload = {
             "model": model or "default",
             "messages": messages,
@@ -53,8 +78,20 @@ class LlamaServerProvider(Provider):
                     except json.JSONDecodeError:
                         pass
                 return prev_response.strip()
-        except httpx.HTTPError as e:
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            # Rilancia senza modifiche: il loop in _chat_completion_request gestisce i retry
             raise
+        except httpx.TimeoutException:
+            raise RuntimeError(
+                f"llama-server ha impiegato troppo tempo a rispondere ({timeout}s). "
+                "Prova ad aumentare il timeout o ad usare un modello più leggero."
+            )
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(
+                f"llama-server ha risposto con errore HTTP {e.response.status_code}: {e.response.text[:200]}"
+            )
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"Errore di rete con llama-server: {e}")
 
     def summarize(self, text: str, *, model: str | None = None, max_tokens: int | None = None, timeout: int = 60, stream_callback = None) -> str:
         """Generate a summary using llama-server with streaming output."""
