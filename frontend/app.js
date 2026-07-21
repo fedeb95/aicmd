@@ -55,6 +55,10 @@ const panelMeta = {
         title: 'Traduzione',
         subtitle: 'Traduci il tuo testo in una lingua diversa.'
     },
+    'recipe-section': {
+        title: 'Ricette dagli Ingredienti',
+        subtitle: 'Genera una o più ricette a partire dagli ingredienti che hai a disposizione.'
+    },
     'chat-section': {
         title: 'Chat in Streaming',
         subtitle: 'Conversa con il modello linguistico locale con aggiornamenti in tempo reale.'
@@ -322,7 +326,16 @@ const btnTranslate               = document.getElementById('btn-translate');
 const translateResultContainer   = document.getElementById('translate-result-container');
 const translateResult            = document.getElementById('translate-result');
 
-// ============================================================
+const recipeIngredientsInput     = document.getElementById('recipe-ingredients-input');
+const recipePeopleInput          = document.getElementById('recipe-people-input');
+const recipeSpeedInput           = document.getElementById('recipe-speed-input');
+const btnRecipe                  = document.getElementById('btn-recipe');
+const recipeResultContainer      = document.getElementById('recipe-result-container');
+const recipeResult               = document.getElementById('recipe-result');
+const recipeLangInput           = document.getElementById('recipe-lang-input');
+
+// ======================================================================
+// Debug: ensure all DOM refs are initialized before proceeding.
 // Toast
 // ============================================================
 function dismissToast() {
@@ -559,6 +572,39 @@ btnTranslate.addEventListener('click', async () => {
         showToast(err.message, true);
     } finally {
         setLoading(btnTranslate, false);
+    }
+});
+
+// ============================================================
+// Recipe (Ricette dagli Ingredienti)
+// ============================================================
+btnRecipe.addEventListener('click', async () => {
+    const ingredients = recipeIngredientsInput.value.trim();
+    if (!ingredients) { showToast('Inserisci almeno un ingrediente.', true); return; }
+    setLoading(btnRecipe, true);
+    const { apiUrl, provider, model } = getConfig();
+    const people = recipePeopleInput.value.trim();
+    const speed  = recipeSpeedInput.value.trim();
+    const lang   = recipeLangInput.value.trim();
+    try {
+        await handleStreamingRequest(
+            `${apiUrl}/api/recipe`,
+            {
+                ingredients,
+                people: people ? parseInt(people, 10) : null,
+                speed: speed || null,
+                language: lang === 'auto' ? null : lang,
+                provider: provider || null,
+                model: model || null
+            },
+            recipeResult,
+            recipeResultContainer,
+            'Ricetta generata!'
+        );
+    } catch (err) {
+        showToast(err.message, true);
+    } finally {
+        setLoading(btnRecipe, false);
     }
 });
 

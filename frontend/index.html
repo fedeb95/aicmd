@@ -32,6 +32,10 @@
                     <span class="menu-icon">🌐</span>
                     <span class="menu-text">Traduzione</span>
                 </button>
+                <button class="menu-item" data-tab="recipe-section">
+                    <span class="menu-icon">🍳</span>
+                    <span class="menu-text">Ricette</span>
+                </button>
                 <button class="menu-item" data-tab="chat-section">
                     <span class="menu-icon">💬</span>
                     <span class="menu-text">Chat</span>
@@ -181,6 +185,51 @@
                                 <h3>Testo Tradotto:</h3>
                                 <div id="translate-result" class="result-box"></div>
                                 <button class="btn btn-secondary btn-copy" onclick="copyText('translate-result')">Copia negli appunti</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Pannello 4b: Recipe -->
+                <section class="feature-panel hidden" id="recipe-section">
+                    <div class="panel-card glass-card">
+                        <div class="card-body">
+                            <div class="input-group" style="margin-bottom: 0.5rem;">
+                                <label for="recipe-ingredients-input">Ingredienti disponibili</label>
+                                <textarea id="recipe-ingredients-input" placeholder="Es: uova, pomodoro, basilico, pasta, aglio..."></textarea>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.5rem;">
+                                <div class="config-item">
+                                    <label for="recipe-people-input">Numero persone (opzionale)</label>
+                                    <input type="number" id="recipe-people-input" min="1" placeholder="Es: 4">
+                                </div>
+                                <div class="config-item">
+                                    <label for="recipe-speed-input">Velocità (opzionale)</label>
+                                    <input type="text" id="recipe-speed-input" placeholder="Es: veloce, sotto 20 min">
+                                </div>
+                            </div>
+                            <div class="config-item" style="margin-bottom: 0.5rem;">
+                                <label for="recipe-lang-input">Lingua risposta (opzionale)</label>
+                                <select id="recipe-lang-input">
+                                    <option value="auto">Auto (dall'input)</option>
+                                    <option value="it">Italiano</option>
+                                    <option value="en">English</option>
+                                    <option value="es">Español</option>
+                                    <option value="fr">Français</option>
+                                    <option value="de">Deutsch</option>
+                                    <option value="pt">Português</option>
+                                </select>
+                            </div>
+
+                            <button id="btn-recipe" class="btn btn-primary">
+                                <span class="btn-text">Genera Ricetta</span>
+                                <div class="loader hidden"></div>
+                            </button>
+
+                            <div id="recipe-result-container" class="result-container hidden">
+                                <h3>Ricetta Generata:</h3>
+                                <div id="recipe-result" class="result-box"></div>
+                                <button class="btn btn-secondary btn-copy" onclick="copyText('recipe-result')">Copia negli appunti</button>
                             </div>
                         </div>
                     </div>

@@ -176,8 +176,20 @@ class TranslateRequest(BaseModel):
     timeout: Optional[int] = None
     stream: Optional[bool] = False
 
+class RecipeRequest(BaseModel):
+    ingredients: str
+    people: Optional[int] = None
+    speed: Optional[str] = None
+    language: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    max_tokens: Optional[int] = 512
+    timeout: Optional[int] = None
+    stream: Optional[bool] = False
+
 @app.post("/api/translate")
 async def translate(request: TranslateRequest):
+    print(request)
     try:
         if request.stream:
             return run_in_thread_with_stream(
@@ -201,6 +213,38 @@ async def translate(request: TranslateRequest):
                 timeout=request.timeout,
             )
             return {"translated": translated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/recipe")
+async def recipe(request: RecipeRequest):
+    print(request)
+    try:
+        if request.stream:
+            print("streaming...")
+            return run_in_thread_with_stream(
+                services.recipe_from_ingredients,
+                ingredients=request.ingredients,
+                people=request.people,
+                speed=request.speed,
+                target_language=request.language,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 512,
+                timeout=request.timeout,
+            )
+        else:
+            recipe_text = services.recipe_from_ingredients(
+                ingredients=request.ingredients,
+                people=request.people,
+                speed=request.speed,
+                target_language=request.language,
+                provider=request.provider,
+                model=request.model,
+                max_tokens=request.max_tokens or 512,
+                timeout=request.timeout,
+            )
+            return {"recipe": recipe_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

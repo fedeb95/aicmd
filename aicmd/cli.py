@@ -215,6 +215,46 @@ def translate(
 
 
 @app.command()
+def recipe(
+    ingredients: str = typer.Argument(..., help="List of available ingredients (e.g. 'eggs, tomato, basil, pasta')"),
+    people: int = typer.Option(None, "--people", "-p", help="Number of servings"),
+    speed: str = typer.Option(None, "--speed", "-s", help="Preparation speed / constraint (e.g. 'fast', 'slow', 'under 20 min')"),
+    language: str = typer.Option("", help="Target language (e.g. 'it', 'en', 'es', 'auto') - overrides config"),
+    provider: str = typer.Option("", help="ollama|openrouter|llamaserver; auto‑detect if omitted"),
+    model: str = typer.Option("", help="Model name; provider default if omitted"),
+    max_tokens: int = typer.Option(512, help="Maximum tokens for the recipe"),
+    timeout: int = typer.Option(None, help="Request timeout in seconds (overrides config)"),
+):
+    """Generate one or more recipes from a list of available ingredients using the selected LLM backend."""
+    has_streamed = False
+    def stream_callback(chunk: str):
+        nonlocal has_streamed
+        has_streamed = True
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    try:
+        result = services.recipe_from_ingredients(
+            ingredients,
+            people=people,
+            speed=speed,
+            language=(language or None) if language else None,
+            provider=provider or None,
+            model=model or None,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream_callback=stream_callback,
+        )
+        if not has_streamed:
+            typer.echo(result)
+        else:
+            typer.echo("")
+    except Exception as e:
+        typer.echo(f"[error] {str(e)}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind address"),
     port: int = typer.Option(8000, help="Port to listen on"),

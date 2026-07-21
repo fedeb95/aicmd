@@ -170,7 +170,7 @@ def translate_text(
     If provider has no chat, fall back to provider.rewrite with an explicit instruction.
     """
     cfg = config.load()
-    prov_name = provider or cfg.get("provider") or "ollama"
+    prov_name = provider or cfg.get("provider") or "llamaserver"
     prov = providers.get_provider(prov_name)
     if not prov:
         raise ValueError(f"No provider configured or found for '{prov_name}'")
@@ -246,6 +246,108 @@ def translate_text(
         timeout=effective_timeout,
         stream_callback=stream_callback,
     )
+
+
+def recipe_from_ingredients(
+    ingredients: str,
+    people: Optional[int] = None,
+    speed: Optional[str] = None,
+    target_language: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    max_tokens: int = 512,
+    timeout: Optional[int] = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+) -> str:
+    """Generate one or more recipes from a list of available ingredients.
+
+    Optionally constrain to a number of servings (people), preparation speed, 
+    and desired language. Prefer provider.chat with the dedicated recipe KV session when available.
+    """
+    cfg = config.load()
+    prov_name = provider or cfg.get("provider") or "llamaserver"
+    prov = providers.get_provider(prov_name)
+    if not prov:
+        raise ValueError(f"No provider configured or found for '{prov_name}'")
+
+    effective_timeout = timeout if timeout is not None else cfg.get("timeout", 300)
+    resolved_model = model or None
+
+    # Determina la lingua target (priorità: parametro esplicito → config → auto)
+    target = (target_language or cfg.get("language") or "auto").strip().lower()
+    if target not in ("auto", "en", "it", "es", "fr", "de", "pt"):
+        target = "auto"
+
+    # Costruisce il contenuto utente con vincoli opzionali.
+    # Quando la lingua è esplicita, la segnaliamo con un prefisso "xx:" così
+    # il modello risponde nella lingua richiesta anche via sessione KV generica.
+    user_content = ingredients.strip()
+    if target != "auto":
+        user_content = f"[{target}]: {user_content}"
+    if people is not None:
+        user_content += f"\n\nNumber of servings: {people}"
+    if speed is not None and speed.strip():
+        user_content += f"\n\nPreparation speed / constraint: {speed.strip()}"
+    user_content += "\n\nPropose a recipe (or a few alternatives) using these ingredients."
+
+    # NOTA: questo llama-server si impalla (streaming e non) se riceve un
+    # messaggio con ruolo "system". Inseriamo quindi le istruzioni nel messaggio
+    # user (come fa di fatto translate), evitando il ruolo system.
+    sys_instr = (
+        "You are a chef. Given a list of available ingredients, "
+        "propose EXACTLY ONE recipe using ONLY those ingredients. "
+        "Respond in the same language as the user's request. Be concise."
+    )
+    full_user = f"{sys_instr}\n\n---\n\n{user_content}"
+    messages = [{"role": "user", "content": full_user}]
+
+    if hasattr(prov, 'set_session') and hasattr(prov, 'chat'):
+        from .providers.sessions import SESSION_RECIPE
+        prov.set_session(SESSION_RECIPE)
+        messages = [{"role": "user", "content": user_content}]
+        if stream_callback:
+            acc = []
+            def cb(chunk: str):
+                acc.append(chunk)
+                stream_callback(chunk)
+            reply = prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout, stream_callback=cb)
+            if acc:
+                return "".join(acc)
+            return reply or ""
+        else:
+            return prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout)
+
+
+    if hasattr(prov, 'chat'):
+        if stream_callback:
+            acc = []
+            def cb(chunk: str):
+                acc.append(chunk)
+                stream_callback(chunk)
+            reply = prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout, stream_callback=cb)
+            if acc:
+                return "".join(acc)
+            return reply or ""
+        else:
+            return prov.chat(messages, model=resolved_model, max_tokens=max_tokens, timeout=effective_timeout)    # Fallback: use rewrite with a clear instruction
+
+    instr = (
+        "You are a creative chef. Using the ingredients below, propose a recipe "
+        "with servings, ingredients and quantities, and step-by-step instructions.\n\n"
+        + user_content
+    )
+    if hasattr(prov, 'rewrite'):
+        return prov.rewrite(
+            ingredients,
+            instr,
+            model=resolved_model,
+            max_tokens=max_tokens,
+            timeout=effective_timeout,
+            stream_callback=stream_callback,
+        )
+
+    raise NotImplementedError("The selected provider does not support chat or rewrite.")
+
 
 # Chat-related helpers
 

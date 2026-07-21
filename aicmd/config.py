@@ -30,6 +30,7 @@ def load() -> dict:
         "model": os.getenv("AI_MODEL"),
         "ollama_url": os.getenv("AI_OLLAMA_URL"),
         "openrouter_key": os.getenv("AI_OPENROUTER_KEY"),
+        "language": os.getenv("AI_LANGUAGE"),
     }
     for k, v in env_map.items():
         if v:

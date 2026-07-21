@@ -12,6 +12,7 @@ SESSION_SUMMARIZE = "summarize"
 SESSION_DESCRIBE = "describe"
 SESSION_REWRITE  = "rewrite"
 SESSION_TRANSLATE = "translate"
+SESSION_RECIPE   = "recipe"
 SESSION_CHAT     = "chat"
 SESSION_AGENT    = "agent"
 
@@ -44,6 +45,16 @@ def _translate_messages(cfg) -> List[Dict[str, str]]:
         {"role": "system", "content": sys_instr},
     ]
 
+def _recipe_messages(cfg) -> List[Dict[str, str]]:
+    sys_instr = (
+        "You are a chef. Given a list of available ingredients, "
+        "propose EXACTLY ONE recipe using ONLY those ingredients. "
+        "Respond in the same language as the user's request. Be concise."
+    )
+    return [
+        {"role": "system", "content": sys_instr},
+    ]
+
 def _chat_messages(cfg) -> List[Dict[str, str]]:
     # Chat pura: nessun system prompt fisso (le istruzioni arrivano dalla cronologia).
     return []
@@ -61,6 +72,7 @@ def build_sessions() -> Dict[str, List[Dict[str, str]]]:
         SESSION_DESCRIBE:  _describe_messages(cfg),
         SESSION_REWRITE:   _rewrite_messages(cfg),
         SESSION_TRANSLATE: _translate_messages(cfg),
+        SESSION_RECIPE:    _recipe_messages(cfg),
         SESSION_CHAT:      _chat_messages(cfg),
         SESSION_AGENT:     _agent_messages(cfg),
     }
